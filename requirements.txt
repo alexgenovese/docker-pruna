@@ -1,0 +1,5 @@
+torch>=2.1
+diffusers
+pruna
+safetensors
+# e tutte le dipendenze necessarie a comfyui, comfyui-nodes, ecc.
