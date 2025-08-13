@@ -8,4 +8,6 @@ accelerate
 huggingface_hub
 flask>=2.0
 requests
+IPython
+jupyter
 # e tutte le dipendenze necessarie a comfyui, comfyui-nodes, ecc.

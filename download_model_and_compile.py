@@ -434,14 +434,26 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     
     print(f"📊 Configurazione Pruna applicata per modalità: {compilation_mode} - Tipo modello: {model_type}")
     
-    print("🚀 Avvio compilazione Pruna...")
-    compiled = smash(pipeline, smash_config=smash_config)
-    
-    # Save compiled model
-    compiled.save_pretrained(compiled_path)
-    
-    print(f"✅ Modello ottimizzato salvato in {compiled_path}")
-    return compiled_path
+    try:
+        print("🚀 Avvio compilazione Pruna...")
+        compiled = smash(pipeline, smash_config=smash_config)
+        
+        # Save compiled model
+        compiled.save_pretrained(compiled_path)
+        
+        print(f"✅ Modello ottimizzato salvato in {compiled_path}")
+        return compiled_path
+        
+    except Exception as e:
+        print(f"⚠️  Errore durante la compilazione Pruna: {e}")
+        print("🔄 Salvataggio del modello base senza ottimizzazioni Pruna...")
+        
+        # Fallback: save the unoptimized model in compiled directory
+        pipeline.save_pretrained(compiled_path)
+        
+        print(f"⚠️  Modello salvato senza ottimizzazioni in {compiled_path}")
+        print("ℹ️  Il modello funzionerà ma senza le ottimizzazioni Pruna")
+        return compiled_path
 
 
 def main():
