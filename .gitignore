@@ -48,5 +48,6 @@ logs/
 
 # cache folders 
 compiled_models/
+generated_images/
 
 .env

@@ -196,6 +196,118 @@ optional arguments:
 - **Tempo**: ~30-60 minuti
 - **Qualità**: Massima, ottimizzazioni complete
 
+## 🌐 API Server
+
+Il progetto include un server Flask per l'inferenza via API REST. Il server carica automaticamente i modelli compilati con Pruna per prestazioni ottimizzate.
+
+### Avvio del Server
+
+```bash
+# Avvia il server (localhost:5000)
+python3 server.py
+```
+
+### Endpoint /generate - Esempi CURL
+
+#### Generazione Base
+```bash
+curl -X POST http://localhost:5000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "stable-diffusion-v1-5",
+    "prompt": "A beautiful sunset over the ocean"
+  }'
+```
+
+#### Generazione con Parametri Avanzati
+```bash
+curl -X POST http://localhost:5000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "stable-diffusion-v1-5",
+    "prompt": "A futuristic city with flying cars",
+    "negative_prompt": "blurry, low quality, dark",
+    "num_inference_steps": 30,
+    "guidance_scale": 7.5,
+    "width": 768,
+    "height": 768,
+    "num_images": 2
+  }'
+```
+
+#### Generazione con Debug (Salvataggio Locale)
+```bash
+curl -X POST http://localhost:5000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "stable-diffusion-v1-5",
+    "prompt": "A magical forest with glowing trees",
+    "debug": true,
+    "num_images": 3
+  }'
+```
+
+#### Generazione Rapida per Test
+```bash
+curl -X POST http://localhost:5000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "stable-diffusion-v1-5",
+    "prompt": "A red car",
+    "num_inference_steps": 10,
+    "width": 512,
+    "height": 512
+  }'
+```
+
+#### Generazione ad Alta Qualità
+```bash
+curl -X POST http://localhost:5000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "stable-diffusion-v1-5",
+    "prompt": "A detailed portrait of a wise old wizard",
+    "negative_prompt": "blurry, low quality, deformed",
+    "num_inference_steps": 50,
+    "guidance_scale": 12.0,
+    "width": 1024,
+    "height": 1024
+  }'
+```
+
+#### Parametri Supportati
+
+| Parametro | Tipo | Default | Descrizione |
+|-----------|------|---------|-------------|
+| `model_id` | string | **richiesto** | ID del modello (nome cartella in compiled_models/) |
+| `prompt` | string | **richiesto** | Prompt di generazione |
+| `negative_prompt` | string | `""` | Prompt negativo (cosa evitare) |
+| `num_inference_steps` | int | `20` | Numero di step di denoising (10-100) |
+| `guidance_scale` | float | `7.5` | Aderenza al prompt (1.0-20.0) |
+| `width` | int | `512` | Larghezza immagine (multipli di 8) |
+| `height` | int | `512` | Altezza immagine (multipli di 8) |
+| `num_images` | int | `1` | Numero di immagini da generare |
+| `debug` | bool | `false` | Salva immagini in locale (./generated_images/) |
+
+#### Risposta API
+
+```json
+{
+  "status": "success",
+  "images": ["base64_encoded_image_1", "base64_encoded_image_2"],
+  "prompt": "A magical forest with glowing trees",
+  "model_used": "stable-diffusion-v1-5",
+  "inference_time": 2.34,
+  "saved_files": ["./generated_images/20250813_143022_img_00.png"]
+}
+```
+
+**Note:**
+- Le immagini sono codificate in base64 nel campo `images`
+- Con `debug: true`, le immagini vengono salvate in `./generated_images/`
+- Il server usa automaticamente modelli Pruna se disponibili per prestazioni ottimizzate
+- Tempi di risposta tipici: 1-5 secondi (dipende da parametri e hardware)
+
 ## 🛠️ Utilizzo
 
 ### Docker Build con Parametri

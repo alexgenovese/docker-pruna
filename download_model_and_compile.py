@@ -505,6 +505,11 @@ def main():
         print(f"\n❌ Errore durante l'esecuzione: {e}")
         sys.exit(1)
 
-
+#
+# Quando usare questo file? 
+# Questo file può essere utilizzato per scaricare e compilare modelli per l'inferenza.
+# Esempio di utilizzo:
+# python download_model_and_compile.py --model-id <MODEL_ID> --download-dir <DOWNLOAD_DIR> --compiled-dir <COMPILED_DIR>
+# 
 if __name__ == "__main__":
     main()

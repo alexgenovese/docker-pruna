@@ -329,7 +329,7 @@ def generate():
         
         # Parametri di generazione
         prompt = data.get('prompt', '')
-        negative_prompt = data.get('negative_prompt', '')
+        negative_prompt = data.get('negative_prompt', 'lowres, bad quality, low quality')
         model_id = data.get('model_id', DEFAULT_CONFIG['model_id'])
         num_inference_steps = data.get('num_inference_steps', 20)
         guidance_scale = data.get('guidance_scale', 7.5)
