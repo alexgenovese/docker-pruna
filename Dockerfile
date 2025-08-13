@@ -1,5 +1,5 @@
 # Esempio di Dockerfile personalizzato con ARG per parametri build-time
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 AS base
 
 # -- Argomenti build-time per personalizzazione
 ARG MODEL_DIFF=CompVis/stable-diffusion-v1-4
@@ -13,9 +13,11 @@ RUN apt-get update && \
     apt-get install -y python3-pip aria2 git && \
     rm -rf /var/lib/apt/lists/*
 
+FROM base AS pip-env 
+
 WORKDIR /app
 
-# -- Installa dipendenze Python: ComfyUI, Pruna, torch, ecc.
+# -- Installa dipendenze Python: Pruna, torch, ecc.
 COPY requirements.txt .
 RUN pip install --upgrade pip
 
@@ -28,8 +30,12 @@ ENV CUDA_HOME=/usr/local/cuda
 # -- Installa le altre dipendenze
 RUN pip install -r requirements.txt
 
-# -- Script principale parametrizzato
-COPY main.py .
+FROM pip-env AS setup-server
+
+# -- Script principali
+COPY download_model_and_compile.py .
+COPY server.py .
+COPY test_pruna_infer.py .
 
 # -- Imposta variabili d'ambiente dai parametri build
 ENV MODEL_DIFF=${MODEL_DIFF}
@@ -38,7 +44,20 @@ ENV PRUNA_COMPILED_DIR=${PRUNA_COMPILED_DIR}
 ENV HF_TOKEN=${HF_TOKEN}
 
 # -- Scarica e compila modello con Pruna (usando parametri)
-RUN python3 main.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR} --hf-token ${HF_TOKEN}
+RUN if [ -n "${HF_TOKEN}" ]; then \
+        python3 download_model_and_compile.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR} --hf-token ${HF_TOKEN}; \
+    else \
+        python3 download_model_and_compile.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR}; \
+    fi
+
+
+FROM setup-server AS final 
+
+# Copia i modelli scaricati e compilati dalla fase precedente
+COPY --from=setup-server /app/models /app/models
+COPY --from=setup-server /app/compiled_models /app/compiled_models
+COPY --from=setup-server /app/server.py /app/server.py
+COPY --from=setup-server /app/test_pruna_infer.py /app/test_pruna_infer.py
 
 # ONLY for TESTING: Esegui un test di inferenza con Pruna
 # COPY test_pruna_infer.py /test_pruna_infer.py

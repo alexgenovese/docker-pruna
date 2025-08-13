@@ -53,23 +53,15 @@ docker build \
 ### Uso Locale
 
 ```bash
-# Scarica e compila modello di default
-python3 main.py
+# Esempio 1: Verifica automatica - se il modello esiste, non fa nulla
+python3 download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
 
-# Modello personalizzato
-python3 main.py --model-id "runwayml/stable-diffusion-v1-5"
+# Esempio 2: Scarica e compila un nuovo modello con modalità veloce  
+python3 download_model_and_compile.py --model-id CompVis/stable-diffusion-v1-4 --compilation-mode fast
 
-# Solo download
-python3 main.py --skip-compile
+# Esempio 3: Usa cartelle personalizzate
+python3 download_model_and_compile.py --model-id <MODEL_ID> --download-dir /custom/path --compiled-dir /custom/compiled
 
-# Solo compilazione (modello esistente)
-python3 main.py --skip-download
-
-# Con variabili d'ambiente
-export MODEL_DIFF="stabilityai/stable-diffusion-2-1"
-export DOWNLOAD_DIR="./my_models"
-export PRUNA_COMPILED_DIR="./my_compiled"
-python3 main.py
 ```
 
 ### Test

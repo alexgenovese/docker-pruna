@@ -19,6 +19,12 @@ except ImportError:
 from pruna import SmashConfig, smash
 from huggingface_hub import login
 
+# Default values
+DEFAULT_DOWNLOAD_DIR = './models'
+DEFAULT_COMPILED_DIR = './compiled_models'
+download_dir = Path(os.environ.get('DOWNLOAD_DIR', DEFAULT_DOWNLOAD_DIR))
+compiled_dir = Path(os.environ.get('PRUNA_COMPILED_DIR', DEFAULT_COMPILED_DIR))
+
 
 def parse_args():
     """Parse command line arguments"""
@@ -26,12 +32,12 @@ def parse_args():
     parser.add_argument('--model-id', 
                        default=os.environ.get('MODEL_DIFF', 'CompVis/stable-diffusion-v1-4'),
                        help='Hugging Face model ID to download (default: %(default)s)')
-    parser.add_argument('--download-dir', 
-                       default=os.environ.get('DOWNLOAD_DIR'),
-                       help='Directory to download models (default: skip download if not specified)')
-    parser.add_argument('--compiled-dir', 
-                       default=os.environ.get('PRUNA_COMPILED_DIR'),
-                       help='Directory to save compiled Pruna models (default: skip compilation if not specified)')
+    parser.add_argument('--download-dir',
+                       default=None,
+                       help=f'Directory to download models (default: {DEFAULT_DOWNLOAD_DIR})')
+    parser.add_argument('--compiled-dir',
+                       default=None,
+                       help=f'Directory to save compiled models (default: {DEFAULT_COMPILED_DIR})')
     parser.add_argument('--hf-token',
                        default=os.environ.get('HF_TOKEN'),
                        help='Hugging Face token for authentication')
@@ -46,7 +52,7 @@ def parse_args():
                        choices=['float16', 'float32'],
                        help='Torch dtype for model loading (default: %(default)s)')
     parser.add_argument('--compilation-mode',
-                       default='normal',
+                       default='moderate',
                        choices=['fast', 'moderate', 'normal'],
                        help='Pruna compilation mode - fast: speed over quality, moderate: balanced, normal: quality over speed (default: %(default)s)')
     parser.add_argument('--force-cpu',
@@ -78,6 +84,37 @@ def detect_model_type(model_id):
         return 'stable-diffusion'
     else:
         return 'generic'
+
+
+def check_model_exists(model_id, download_dir, compiled_dir):
+    """
+    Check if a model already exists in download_dir and/or compiled_dir
+    
+    Args:
+        model_id (str): Hugging Face model identifier
+        download_dir (str): Directory where models are downloaded
+        compiled_dir (str): Directory where compiled models are stored
+    
+    Returns:
+        tuple: (model_exists, compiled_exists, model_path, compiled_path)
+    """
+    # Convert model ID to folder name format
+    model_name = model_id.replace('/', '--')
+    
+    # Check in download directory
+    model_path = os.path.join(download_dir, model_name)
+    model_exists = os.path.exists(model_path) and os.path.isdir(model_path) and os.listdir(model_path)
+    
+    # Check in compiled directory  
+    compiled_path = os.path.join(compiled_dir, model_name)
+    compiled_exists = os.path.exists(compiled_path) and os.path.isdir(compiled_path) and os.listdir(compiled_path)
+    
+    # Additional check for compiled model - verify it has required config files
+    if compiled_exists:
+        config_files = ['model_index.json', 'smash_config.json']
+        compiled_exists = any(os.path.exists(os.path.join(compiled_path, f)) for f in config_files)
+    
+    return model_exists, compiled_exists, model_path, compiled_path
 
 
 def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=None):
@@ -411,18 +448,9 @@ def main():
     """Main function"""
     args = parse_args()
     
-    # Auto-skip logic: if download-dir or compiled-dir are not specified, skip those steps
-    auto_skip_download = args.download_dir is None
-    auto_skip_compile = args.compiled_dir is None
-    
-    # Override skip flags if directories are not provided
-    if auto_skip_download:
-        args.skip_download = True
-        print("⏭️  Download automaticamente saltato: --download-dir non specificato")
-    
-    if auto_skip_compile:
-        args.skip_compile = True
-        print("⏭️  Compilazione automaticamente saltata: --compiled-dir non specificato")
+    # Use default directories if not specified
+    effective_download_dir = download_dir if hasattr(args, 'download_dir') and args.download_dir else DEFAULT_DOWNLOAD_DIR
+    effective_compiled_dir = compiled_dir if hasattr(args, 'compiled_dir') and args.compiled_dir else DEFAULT_COMPILED_DIR
     
     # Convert torch dtype string to actual dtype
     torch_dtype = torch.float16 if args.torch_dtype == 'float16' else torch.float32
@@ -430,8 +458,8 @@ def main():
     print("=" * 50)
     print(f"📋 Parametri:")
     print(f"   - Modello: {args.model_id}")
-    print(f"   - Download Dir: {args.download_dir or 'SALTATO'}")
-    print(f"   - Compiled Dir: {args.compiled_dir or 'SALTATO'}")
+    print(f"   - Download Dir: {effective_download_dir}")
+    print(f"   - Compiled Dir: {effective_compiled_dir}")
     print(f"   - HF Token: {'***IMPOSTATO***' if args.hf_token else 'NON IMPOSTATO'}")
     print(f"   - Torch dtype: {args.torch_dtype}")
     print(f"   - Compilation Mode: {args.compilation_mode}")
@@ -441,65 +469,77 @@ def main():
     print(f"   - Skip Compile: {args.skip_compile}")
     print("=" * 50)
     
+    # Check if model already exists
+    model_exists, compiled_exists, model_path, compiled_path = check_model_exists(
+        args.model_id, effective_download_dir, effective_compiled_dir
+    )
+    
+    print(f"\n� Verifica esistenza modello:")
+    print(f"   - Modello base: {'✅ PRESENTE' if model_exists else '❌ NON PRESENTE'} in {model_path}")
+    print(f"   - Modello compilato: {'✅ PRESENTE' if compiled_exists else '❌ NON PRESENTE'} in {compiled_path}")
+    
+    # Auto-determine what needs to be done
+    need_download = not model_exists and not args.skip_download
+    need_compile = not compiled_exists and not args.skip_compile
+    
+    if compiled_exists and not args.skip_compile:
+        print(f"✅ Modello compilato già disponibile, salto la compilazione")
+        need_compile = False
+    
+    if model_exists and not need_compile and not args.skip_download:
+        print(f"✅ Modello base già disponibile e compilazione non necessaria")
+        need_download = False
+    
+    print(f"\n📋 Piano di esecuzione:")
+    print(f"   - Download: {'✅ NECESSARIO' if need_download else '⏭️ SALTA'}")
+    print(f"   - Compilazione: {'✅ NECESSARIO' if need_compile else '⏭️ SALTA'}")
+    
     # Check if both operations are skipped
-    if args.skip_download and args.skip_compile:
-        print("⚠️  Entrambe le operazioni (download e compilazione) sono saltate.")
-        print("💡 Specifica almeno --download-dir o --compiled-dir per eseguire un'operazione.")
+    if not need_download and not need_compile:
+        print("\n🎉 Nessuna operazione necessaria - tutti i modelli sono già disponibili!")
+        print(f"📁 Modello base: {model_path}")
+        print(f"🚀 Modello compilato: {compiled_path}")
+        print(f"\n💡 Per usare il modello compilato, imposta:")
+        print(f"   export PRUNA_COMPILED_DIR='{compiled_path}'")
         return
     
-    model_path = None
-    compiled_path = None
+    final_model_path = model_path if model_exists else None
+    final_compiled_path = compiled_path if compiled_exists else None
     
     try:
-        # Step 1: Download model (if not skipped)
-        if not args.skip_download:
-            model_path = download_model(args.model_id, args.download_dir, torch_dtype, args.hf_token)
-        else:
-            # Use existing model when download is skipped but compile is needed
-            if not args.skip_compile:
-                # Try to find existing model in default location or use model_id
-                if args.download_dir:
-                    model_name = args.model_id.replace('/', '--')
-                    model_path = os.path.join(args.download_dir, model_name)
-                    if not os.path.exists(model_path):
-                        # Try alternative paths
-                        potential_paths = [
-                            os.path.join('./models', model_name),
-                            args.model_id  # Use model_id directly as fallback
-                        ]
-                        for potential_path in potential_paths:
-                            if os.path.exists(potential_path):
-                                model_path = potential_path
-                                break
-                        
-                        if not model_path or not os.path.exists(model_path):
-                            raise RuntimeError(f"❌ Modello non trovato in {model_path}. Specifica --download-dir per scaricarlo.")
-                else:
-                    # If no download dir specified, try using model_id directly
-                    model_path = args.model_id
-                
-                print(f"✅ Uso modello esistente: {model_path}")
+        # Step 1: Download model (if needed)
+        if need_download:
+            print(f"\n🔄 Avvio download del modello...")
+            final_model_path = download_model(args.model_id, effective_download_dir, torch_dtype, args.hf_token)
+        elif model_exists:
+            print(f"\n✅ Uso modello esistente: {model_path}")
+            final_model_path = model_path
         
-        # Step 2: Compile model with Pruna (if not skipped)
-        if not args.skip_compile:
-            compiled_path = compile_model_with_pruna(
-                model_path, 
-                args.compiled_dir, 
+        # Step 2: Compile model with Pruna (if needed)
+        if need_compile:
+            if not final_model_path:
+                raise RuntimeError("❌ Impossibile compilare: modello base non disponibile")
+            
+            print(f"\n🔧 Avvio compilazione del modello...")
+            final_compiled_path = compile_model_with_pruna(
+                final_model_path, 
+                effective_compiled_dir, 
                 torch_dtype, 
                 args.compilation_mode,
                 args.force_cpu,
                 args.device
             )
-        else:
-            print("⏭️  Compilazione saltata.")
+        elif compiled_exists:
+            print(f"\n✅ Uso modello compilato esistente: {compiled_path}")
+            final_compiled_path = compiled_path
         
         print("\n🎉 Processo completato con successo!")
-        if model_path:
-            print(f"📁 Modello scaricato: {model_path}")
-        if compiled_path:
-            print(f"🚀 Modello compilato: {compiled_path}")
+        if final_model_path:
+            print(f"📁 Modello base: {final_model_path}")
+        if final_compiled_path:
+            print(f"🚀 Modello compilato: {final_compiled_path}")
             print(f"\n💡 Per usare il modello compilato, imposta:")
-            print(f"   export PRUNA_COMPILED_DIR='{compiled_path}'")
+            print(f"   export PRUNA_COMPILED_DIR='{final_compiled_path}'")
         
     except Exception as e:
         print(f"\n❌ Errore durante l'esecuzione: {e}")
@@ -508,8 +548,17 @@ def main():
 #
 # Quando usare questo file? 
 # Questo file può essere utilizzato per scaricare e compilare modelli per l'inferenza.
+# 
+# Funzionalità principali:
+# - Verifica automaticamente se il modello esiste già nelle cartelle ./models e ./compiled_models
+# - Se il modello non esiste, lo scarica automaticamente da Hugging Face
+# - Se il modello compilato non esiste, lo compila automaticamente con Pruna
+# - Se entrambi esistono già, salta entrambe le operazioni
+# 
 # Esempio di utilizzo:
-# python download_model_and_compile.py --model-id <MODEL_ID> --download-dir <DOWNLOAD_DIR> --compiled-dir <COMPILED_DIR>
+# python download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
+# python download_model_and_compile.py --model-id CompVis/stable-diffusion-v1-4 --compilation-mode fast
+# python download_model_and_compile.py --model-id <MODEL_ID> --download-dir <CUSTOM_DIR> --compiled-dir <CUSTOM_COMPILED_DIR>
 # 
 if __name__ == "__main__":
     main()
