@@ -94,6 +94,9 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
         str: Path to the downloaded model directory
     """
     print(f"🔄 Scaricando modello '{model_id}' da Hugging Face...")
+    if not os.path.exists(download_dir):
+        os.makedirs(download_dir, exist_ok=True)
+
     print(f"📁 Directory di destinazione: {download_dir}")
     
     # Detect model type
@@ -424,7 +427,6 @@ def main():
     # Convert torch dtype string to actual dtype
     torch_dtype = torch.float16 if args.torch_dtype == 'float16' else torch.float32
     
-    print("🎯 Docker Pruna - Download e Compilazione Modelli")
     print("=" * 50)
     print(f"📋 Parametri:")
     print(f"   - Modello: {args.model_id}")

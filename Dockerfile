@@ -40,12 +40,9 @@ ENV HF_TOKEN=${HF_TOKEN}
 # -- Scarica e compila modello con Pruna (usando parametri)
 RUN python3 main.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR} --hf-token ${HF_TOKEN}
 
-# -- (Facoltativo) Aggiungi ComfyUI e tuoi script custom
-# (inserisci qui eventuale COPY degli script comfyui/start.sh ecc.)
-
 # ONLY for TESTING: Esegui un test di inferenza con Pruna
-COPY test_pruna_infer.py /test_pruna_infer.py
-CMD ["python3", "/test_pruna_infer.py"]
+# COPY test_pruna_infer.py /test_pruna_infer.py
+# CMD ["python3", "/test_pruna_infer.py"]
 
-# -- Avvio backend ComfyUI (modifica path/script come necessario!)
-# CMD ["python3", "comfyui_server.py"]
+# -- Avvio backend (modifica path/script come necessario!)
+CMD ["python3", "server.py"]

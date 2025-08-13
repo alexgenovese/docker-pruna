@@ -48,3 +48,5 @@ logs/
 
 # cache folders 
 compiled_models/
+
+.env
