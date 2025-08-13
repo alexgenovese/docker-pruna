@@ -21,9 +21,9 @@ ENV CUDA_HOME=/usr/local/cuda
 RUN pip install -r requirements.txt
 
 # -- Scarica il modello safetensors
-RUN mkdir -p /models
-RUN aria2c -o /models/flux_dev_fp8_scaled_diffusion_model.safetensors \
-    https://huggingface.co/alexgenovese/checkpoint/resolve/main/FLUX/flux_dev_fp8_scaled_diffusion_model.safetensors
+# RUN mkdir -p /models
+# RUN aria2c -o /models/flux_dev_fp8_scaled_diffusion_model.safetensors \
+#     https://huggingface.co/alexgenovese/checkpoint/resolve/main/FLUX/flux_dev_fp8_scaled_diffusion_model.safetensors
 
 # -- Script di compilazione Pruna
 COPY compile_with_pruna.py .
