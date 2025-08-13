@@ -5,4 +5,5 @@ safetensors
 Pillow
 transformers
 accelerate
+huggingface_hub
 # e tutte le dipendenze necessarie a comfyui, comfyui-nodes, ecc.

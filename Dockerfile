@@ -6,6 +6,7 @@ ARG MODEL_DIFF=CompVis/stable-diffusion-v1-4
 ARG DOWNLOAD_DIR=/app/models
 ARG PRUNA_COMPILED_DIR=/app/compiled_models
 ARG TORCH_DTYPE=float16
+ARG HF_TOKEN
 
 # -- Dipendenze di base per Python, git, aria2, pip moderni, ecc.
 RUN apt-get update && \
@@ -36,7 +37,7 @@ ENV DOWNLOAD_DIR=${DOWNLOAD_DIR}
 ENV PRUNA_COMPILED_DIR=${PRUNA_COMPILED_DIR}
 
 # -- Scarica e compila modello con Pruna (usando parametri)
-RUN python3 main.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR}
+RUN python3 main.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR} --hf-token ${HF_TOKEN}
 
 # -- (Facoltativo) Aggiungi ComfyUI e tuoi script custom
 # (inserisci qui eventuale COPY degli script comfyui/start.sh ecc.)

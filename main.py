@@ -10,7 +10,14 @@ import torch
 from pathlib import Path
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import StableDiffusionPipeline
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
+try:
+    from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
+    FLUX_AVAILABLE = True
+except ImportError:
+    FLUX_AVAILABLE = False
+    FluxPipeline = None
 from pruna import SmashConfig, smash
+from huggingface_hub import login
 
 
 def parse_args():
@@ -20,11 +27,14 @@ def parse_args():
                        default=os.environ.get('MODEL_DIFF', 'CompVis/stable-diffusion-v1-4'),
                        help='Hugging Face model ID to download (default: %(default)s)')
     parser.add_argument('--download-dir', 
-                       default=os.environ.get('DOWNLOAD_DIR', './models'),
-                       help='Directory to download models (default: %(default)s)')
+                       default=os.environ.get('DOWNLOAD_DIR'),
+                       help='Directory to download models (default: skip download if not specified)')
     parser.add_argument('--compiled-dir', 
-                       default=os.environ.get('PRUNA_COMPILED_DIR', './compiled_models'),
-                       help='Directory to save compiled Pruna models (default: %(default)s)')
+                       default=os.environ.get('PRUNA_COMPILED_DIR'),
+                       help='Directory to save compiled Pruna models (default: skip compilation if not specified)')
+    parser.add_argument('--hf-token',
+                       default=os.environ.get('HF_TOKEN'),
+                       help='Hugging Face token for authentication')
     parser.add_argument('--skip-download', 
                        action='store_true',
                        help='Skip download step (use existing model)')
@@ -50,7 +60,27 @@ def parse_args():
     return parser.parse_args()
 
 
-def download_model(model_id, download_dir, torch_dtype=torch.float16):
+def detect_model_type(model_id):
+    """
+    Detect the type of model based on model ID
+    
+    Args:
+        model_id (str): Hugging Face model identifier
+    
+    Returns:
+        str: Model type ('flux', 'stable-diffusion', 'generic')
+    """
+    model_id_lower = model_id.lower()
+    
+    if 'flux' in model_id_lower:
+        return 'flux'
+    elif any(keyword in model_id_lower for keyword in ['stable-diffusion', 'sd-', 'compvis']):
+        return 'stable-diffusion'
+    else:
+        return 'generic'
+
+
+def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=None):
     """
     Download a diffusion model from Hugging Face
     
@@ -58,12 +88,27 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16):
         model_id (str): Hugging Face model identifier
         download_dir (str): Local directory to save the model
         torch_dtype: Torch data type for the model
+        hf_token (str): Hugging Face token for authentication
     
     Returns:
         str: Path to the downloaded model directory
     """
     print(f"🔄 Scaricando modello '{model_id}' da Hugging Face...")
     print(f"📁 Directory di destinazione: {download_dir}")
+    
+    # Detect model type
+    model_type = detect_model_type(model_id)
+    print(f"🔍 Tipo di modello rilevato: {model_type}")
+    
+    # Authenticate with Hugging Face if token is provided
+    if hf_token:
+        print("🔐 Autenticazione con Hugging Face...")
+        try:
+            login(token=hf_token)
+            print("✅ Autenticazione riuscita")
+        except Exception as e:
+            print(f"⚠️  Errore durante l'autenticazione: {e}")
+            print("ℹ️  Continuando senza autenticazione...")
     
     # Create download directory
     os.makedirs(download_dir, exist_ok=True)
@@ -78,23 +123,63 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16):
         return model_path
     
     try:
-        # Try to load as StableDiffusionPipeline first
-        pipeline = StableDiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch_dtype,
-            use_safetensors=True,
-            safety_checker=None  # Optional: disable safety checker for faster loading
-        )
-    except Exception as e:
-        print(f"⚠️  Fallback: tentativo con DiffusionPipeline generico...")
-        try:
+        # Configure ignore patterns for large files in repository root
+        # FLUX models often have very large safetensors files in root that we want to skip
+        ignore_patterns = None
+        if model_type == 'flux':
+            ignore_patterns = ["*.safetensors", "*.bin", "*.gguf"]
+            print("🚫 Escludendo file safetensors/bin/gguf dalla root del repository per modelli FLUX")
+        elif any(keyword in model_id.lower() for keyword in ["large", "xl"]):
+            ignore_patterns = ["*.safetensors", "*.bin"]
+            print("🚫 Escludendo file safetensors/bin dalla root del repository per modelli di grandi dimensioni")
+        
+        # Try to load based on model type
+        pipeline = None
+        
+        if model_type == 'flux' and FLUX_AVAILABLE and FluxPipeline is not None:
+            print("🌊 Tentativo di download con FluxPipeline...")
+            try:
+                pipeline = FluxPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch_dtype,
+                    use_safetensors=True,
+                    ignore_mismatched_sizes=True,
+                    use_auth_token=hf_token if hf_token else None,
+                    ignore_patterns=ignore_patterns
+                )
+            except Exception as flux_e:
+                print(f"⚠️  FluxPipeline fallito: {flux_e}")
+                pipeline = None
+        
+        if pipeline is None and model_type == 'stable-diffusion':
+            print("🎨 Tentativo di download con StableDiffusionPipeline...")
+            try:
+                pipeline = StableDiffusionPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch_dtype,
+                    use_safetensors=True,
+                    safety_checker=None,  # Optional: disable safety checker for faster loading
+                    ignore_mismatched_sizes=True,  # Ignore size mismatches for robustness
+                    use_auth_token=hf_token if hf_token else None,
+                    ignore_patterns=ignore_patterns
+                )
+            except Exception as sd_e:
+                print(f"⚠️  StableDiffusionPipeline fallito: {sd_e}")
+                pipeline = None
+        
+        if pipeline is None:
+            print("🔄 Fallback: tentativo con DiffusionPipeline generico...")
             pipeline = DiffusionPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch_dtype,
-                use_safetensors=True
+                use_safetensors=True,
+                ignore_mismatched_sizes=True,
+                use_auth_token=hf_token if hf_token else None,
+                ignore_patterns=ignore_patterns
             )
-        except Exception as e2:
-            raise RuntimeError(f"❌ Impossibile scaricare il modello {model_id}. Errori: {e}, {e2}")
+            
+    except Exception as e:
+        raise RuntimeError(f"❌ Impossibile scaricare il modello {model_id}. Errore: {e}")
     
     # Save model locally
     os.makedirs(model_path, exist_ok=True)
@@ -156,6 +241,11 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     print(f"📂 Modello sorgente: {model_path}")
     print(f"📁 Directory compilazione: {compiled_dir}")
     
+    # Detect model type from path or use generic detection
+    model_id_from_path = os.path.basename(model_path).replace('--', '/')
+    model_type = detect_model_type(model_id_from_path)
+    print(f"🔍 Tipo di modello rilevato per compilazione: {model_type}")
+    
     # Detect best available device and compatibility
     device_name, is_fully_compatible = get_best_available_device(force_cpu, device_override)
     print(f"💻 Dispositivo rilevato: {device_name}")
@@ -176,88 +266,133 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
             print(f"✅ Modello compilato già presente in {compiled_path}")
             return compiled_path
     
-    # Load the model for compilation
+    # Load the model for compilation based on detected type
+    pipeline = None
     if os.path.isdir(model_path):
         try:
-            # Try loading as StableDiffusionPipeline
-            pipeline = StableDiffusionPipeline.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype,
-                safety_checker=None
-            )
+            # Try loading based on model type
+            if model_type == 'flux' and FLUX_AVAILABLE and FluxPipeline is not None:
+                print("🌊 Tentativo di caricamento con FluxPipeline...")
+                try:
+                    pipeline = FluxPipeline.from_pretrained(
+                        model_path,
+                        torch_dtype=torch_dtype
+                    )
+                except Exception as flux_e:
+                    print(f"⚠️  FluxPipeline fallito: {flux_e}")
+                    pipeline = None
+            
+            if pipeline is None and model_type == 'stable-diffusion':
+                print("🎨 Tentativo di caricamento con StableDiffusionPipeline...")
+                try:
+                    pipeline = StableDiffusionPipeline.from_pretrained(
+                        model_path,
+                        torch_dtype=torch_dtype,
+                        safety_checker=None
+                    )
+                except Exception as sd_e:
+                    print(f"⚠️  StableDiffusionPipeline fallito: {sd_e}")
+                    pipeline = None
+            
+            if pipeline is None:
+                print("🔄 Fallback: caricamento con DiffusionPipeline generico...")
+                pipeline = DiffusionPipeline.from_pretrained(
+                    model_path,
+                    torch_dtype=torch_dtype
+                )
         except Exception as e:
-            print(f"⚠️  Fallback: caricamento con DiffusionPipeline generico...")
-            pipeline = DiffusionPipeline.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype
-            )
+            raise RuntimeError(f"❌ Errore nel caricamento del modello: {e}")
     else:
         raise RuntimeError(f"❌ Directory modello non trovata: {model_path}")
     
-    # Configure Pruna optimization based on compilation mode and device compatibility
+    # Configure Pruna optimization based on compilation mode, device compatibility, and model type
     smash_config = SmashConfig(device=device_name)
     
-    if compilation_mode == 'fast':
-        # Modalità veloce: compilazione rapida con ottimizzazioni leggere
-        print("🚀 Modalità VELOCE: ottimizzazioni rapide per tempi di compilazione ridotti")
-        if device_name == "mps":
-            # Per MPS configurazione ultra-minimale
-            pass  # Configurazione vuota
-        else:
-            # Caching leggero per velocità (solo non-MPS)
-            smash_config["cacher"] = "deepcache"
-            smash_config["deepcache_interval"] = 3  # Interval più alto per maggiore velocità
-            smash_config["compiler"] = "stable_fast"
-            # Quantizzazione leggera solo per non-MPS
-            smash_config["quantizer"] = "half"
-        
-    elif compilation_mode == 'moderate':
-        # Modalità moderata: bilanciamento tra velocità e qualità
-        print("⚖️  Modalità MODERATA: bilanciamento tra velocità di compilazione e qualità")
-        if device_name == "mps":
-            # Per MPS configurazione ultra-minimale
-            pass  # Configurazione vuota
-        else:
-            # Caching bilanciato (solo non-MPS)
-            smash_config["cacher"] = "deepcache"
-            smash_config["deepcache_interval"] = 2  # Interval bilanciato
-            # Compiler e quantizzazione moderati
-            smash_config["compiler"] = "torch_compile"
-            smash_config["torch_compile_mode"] = "default"
-            smash_config["quantizer"] = "hqq_diffusers"
-            smash_config["hqq_diffusers_weight_bits"] = 8
-            smash_config["hqq_diffusers_group_size"] = 64
-        
-    else:  # compilation_mode == 'normal'
-        # Modalità normale: qualità massima, tempi più lunghi
-        print("🎯 Modalità NORMALE: ottimizzazioni complete per la massima qualità")
-        
-        if device_name == "mps":
-            # Configurazione ultra-minimale per Apple Silicon (MPS)
-            print("🍎 Configurazione ultra-minimale per Apple Silicon (MPS)")
-            # Per MPS evitiamo tutte le ottimizzazioni incompatibili
-            # Usiamo solo quello che funziona certamente
-            pass  # Configurazione vuota - solo device targeting
-        else:
-            # Configurazione completa per CUDA/CPU
-            print("🖥️  Configurazione completa per CUDA/CPU")
-            # Caching avanzato con fattorizzazione
-            smash_config["cacher"] = "fora"
-            smash_config["fora_interval"] = 2
-            smash_config["fora_start_step"] = 2
-            # Factorizer per ottimizzazioni avanzate (solo su CUDA/CPU)
-            smash_config["factorizer"] = "qkv_diffusers"
-            # Compiler ottimizzato
-            smash_config["compiler"] = "torch_compile"
-            smash_config["torch_compile_mode"] = "max-autotune"
-            # Quantizzazione di alta qualità
-            smash_config["quantizer"] = "hqq_diffusers"
-            smash_config["hqq_diffusers_weight_bits"] = 4
-            smash_config["hqq_diffusers_group_size"] = 32
-            if device_name == "cuda":
-                smash_config["hqq_diffusers_backend"] = "torchao_int4"
+    # Special configuration for FLUX models
+    if model_type == 'flux':
+        print("🌊 Configurazione specifica per modelli FLUX")
+        if compilation_mode == 'fast':
+            print("🚀 Modalità VELOCE per FLUX: ottimizzazioni ultra-minimali")
+            # FLUX models are very large and complex, use minimal optimizations
+            if device_name != "mps":
+                smash_config["quantizer"] = "half"
+        elif compilation_mode == 'moderate':
+            print("⚖️  Modalità MODERATA per FLUX: ottimizzazioni bilanciate")
+            if device_name != "mps":
+                smash_config["quantizer"] = "hqq_diffusers"
+                smash_config["hqq_diffusers_weight_bits"] = 8
+                smash_config["hqq_diffusers_group_size"] = 128  # Larger group size for FLUX
+        else:  # normal
+            print("🎯 Modalità NORMALE per FLUX: ottimizzazioni complete ma conservative")
+            if device_name != "mps":
+                smash_config["quantizer"] = "hqq_diffusers"
+                smash_config["hqq_diffusers_weight_bits"] = 4
+                smash_config["hqq_diffusers_group_size"] = 64
+                if device_name == "cuda":
+                    smash_config["hqq_diffusers_backend"] = "torchao_int4"
+    else:
+        # Standard configuration for Stable Diffusion and other models
+        if compilation_mode == 'fast':
+            # Modalità veloce: compilazione rapida con ottimizzazioni leggere
+            print("🚀 Modalità VELOCE: ottimizzazioni rapide per tempi di compilazione ridotti")
+            if device_name == "mps":
+                # Per MPS configurazione ultra-minimale
+                pass  # Configurazione vuota
+            else:
+                # Caching leggero per velocità (solo non-MPS)
+                smash_config["cacher"] = "deepcache"
+                smash_config["deepcache_interval"] = 3  # Interval più alto per maggiore velocità
+                smash_config["compiler"] = "stable_fast"
+                # Quantizzazione leggera solo per non-MPS
+                smash_config["quantizer"] = "half"
+            
+        elif compilation_mode == 'moderate':
+            # Modalità moderata: bilanciamento tra velocità e qualità
+            print("⚖️  Modalità MODERATA: bilanciamento tra velocità di compilazione e qualità")
+            if device_name == "mps":
+                # Per MPS configurazione ultra-minimale
+                pass  # Configurazione vuota
+            else:
+                # Caching bilanciato (solo non-MPS)
+                smash_config["cacher"] = "deepcache"
+                smash_config["deepcache_interval"] = 2  # Interval bilanciato
+                # Compiler e quantizzazione moderati
+                smash_config["compiler"] = "torch_compile"
+                smash_config["torch_compile_mode"] = "default"
+                smash_config["quantizer"] = "hqq_diffusers"
+                smash_config["hqq_diffusers_weight_bits"] = 8
+                smash_config["hqq_diffusers_group_size"] = 64
+            
+        else:  # compilation_mode == 'normal'
+            # Modalità normale: qualità massima, tempi più lunghi
+            print("🎯 Modalità NORMALE: ottimizzazioni complete per la massima qualità")
+            
+            if device_name == "mps":
+                # Configurazione ultra-minimale per Apple Silicon (MPS)
+                print("🍎 Configurazione ultra-minimale per Apple Silicon (MPS)")
+                # Per MPS evitiamo tutte le ottimizzazioni incompatibili
+                # Usiamo solo quello che funziona certamente
+                pass  # Configurazione vuota - solo device targeting
+            else:
+                # Configurazione completa per CUDA/CPU
+                print("🖥️  Configurazione completa per CUDA/CPU")
+                # Caching avanzato con fattorizzazione
+                smash_config["cacher"] = "fora"
+                smash_config["fora_interval"] = 2
+                smash_config["fora_start_step"] = 2
+                # Factorizer per ottimizzazioni avanzate (solo su CUDA/CPU)
+                smash_config["factorizer"] = "qkv_diffusers"
+                # Compiler ottimizzato
+                smash_config["compiler"] = "torch_compile"
+                smash_config["torch_compile_mode"] = "max-autotune"
+                # Quantizzazione di alta qualità
+                smash_config["quantizer"] = "hqq_diffusers"
+                smash_config["hqq_diffusers_weight_bits"] = 4
+                smash_config["hqq_diffusers_group_size"] = 32
+                if device_name == "cuda":
+                    smash_config["hqq_diffusers_backend"] = "torchao_int4"
     
-    print(f"📊 Configurazione Pruna applicata per modalità: {compilation_mode}")
+    print(f"📊 Configurazione Pruna applicata per modalità: {compilation_mode} - Tipo modello: {model_type}")
     
     print("🚀 Avvio compilazione Pruna...")
     compiled = smash(pipeline, smash_config=smash_config)
@@ -273,6 +408,19 @@ def main():
     """Main function"""
     args = parse_args()
     
+    # Auto-skip logic: if download-dir or compiled-dir are not specified, skip those steps
+    auto_skip_download = args.download_dir is None
+    auto_skip_compile = args.compiled_dir is None
+    
+    # Override skip flags if directories are not provided
+    if auto_skip_download:
+        args.skip_download = True
+        print("⏭️  Download automaticamente saltato: --download-dir non specificato")
+    
+    if auto_skip_compile:
+        args.skip_compile = True
+        print("⏭️  Compilazione automaticamente saltata: --compiled-dir non specificato")
+    
     # Convert torch dtype string to actual dtype
     torch_dtype = torch.float16 if args.torch_dtype == 'float16' else torch.float32
     
@@ -280,8 +428,9 @@ def main():
     print("=" * 50)
     print(f"📋 Parametri:")
     print(f"   - Modello: {args.model_id}")
-    print(f"   - Download Dir: {args.download_dir}")
-    print(f"   - Compiled Dir: {args.compiled_dir}")
+    print(f"   - Download Dir: {args.download_dir or 'SALTATO'}")
+    print(f"   - Compiled Dir: {args.compiled_dir or 'SALTATO'}")
+    print(f"   - HF Token: {'***IMPOSTATO***' if args.hf_token else 'NON IMPOSTATO'}")
     print(f"   - Torch dtype: {args.torch_dtype}")
     print(f"   - Compilation Mode: {args.compilation_mode}")
     print(f"   - Force CPU: {args.force_cpu}")
@@ -290,20 +439,44 @@ def main():
     print(f"   - Skip Compile: {args.skip_compile}")
     print("=" * 50)
     
+    # Check if both operations are skipped
+    if args.skip_download and args.skip_compile:
+        print("⚠️  Entrambe le operazioni (download e compilazione) sono saltate.")
+        print("💡 Specifica almeno --download-dir o --compiled-dir per eseguire un'operazione.")
+        return
+    
     model_path = None
     compiled_path = None
     
     try:
         # Step 1: Download model (if not skipped)
         if not args.skip_download:
-            model_path = download_model(args.model_id, args.download_dir, torch_dtype)
+            model_path = download_model(args.model_id, args.download_dir, torch_dtype, args.hf_token)
         else:
-            # Use existing model
-            model_name = args.model_id.replace('/', '--')
-            model_path = os.path.join(args.download_dir, model_name)
-            if not os.path.exists(model_path):
-                raise RuntimeError(f"❌ Modello non trovato in {model_path}. Rimuovi --skip-download per scaricarlo.")
-            print(f"✅ Uso modello esistente: {model_path}")
+            # Use existing model when download is skipped but compile is needed
+            if not args.skip_compile:
+                # Try to find existing model in default location or use model_id
+                if args.download_dir:
+                    model_name = args.model_id.replace('/', '--')
+                    model_path = os.path.join(args.download_dir, model_name)
+                    if not os.path.exists(model_path):
+                        # Try alternative paths
+                        potential_paths = [
+                            os.path.join('./models', model_name),
+                            args.model_id  # Use model_id directly as fallback
+                        ]
+                        for potential_path in potential_paths:
+                            if os.path.exists(potential_path):
+                                model_path = potential_path
+                                break
+                        
+                        if not model_path or not os.path.exists(model_path):
+                            raise RuntimeError(f"❌ Modello non trovato in {model_path}. Specifica --download-dir per scaricarlo.")
+                else:
+                    # If no download dir specified, try using model_id directly
+                    model_path = args.model_id
+                
+                print(f"✅ Uso modello esistente: {model_path}")
         
         # Step 2: Compile model with Pruna (if not skipped)
         if not args.skip_compile:

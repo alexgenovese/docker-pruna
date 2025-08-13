@@ -1,7 +1,7 @@
 # Test locale per il download e la compilazione di modelli
 
 # Test con modalità moderate (più compatibile con MPS)
-python3 main.py --model-id "black-forest-labs/FLUX.1-Krea-dev" --download-dir "./models/flux-krea" --compiled-dir "./compiled_models/flux-krea" --compilation-mode fast
+python3 main.py --model-id "black-forest-labs/FLUX.1-Krea-dev" --download-dir "./models/flux-krea" --compiled-dir "./compiled_models/flux-krea" --compilation-mode fast --torch-dtype float16 --hf-token "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"
 
 # Se anche moderate fallisce, prova con fast
 # python3 main.py --model-id "CompVis/stable-diffusion-v1-4" --download-dir "./models/stable-diffusion-v1-4" --compiled-dir "./compiled_models/stable-diffusion-v1-4" --compilation-mode fast
