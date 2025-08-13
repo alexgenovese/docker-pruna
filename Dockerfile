@@ -1,4 +1,11 @@
+# Esempio di Dockerfile personalizzato con ARG per parametri build-time
 FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+
+# -- Argomenti build-time per personalizzazione
+ARG MODEL_DIFF=CompVis/stable-diffusion-v1-4
+ARG DOWNLOAD_DIR=/app/models
+ARG PRUNA_COMPILED_DIR=/app/compiled_models
+ARG TORCH_DTYPE=float16
 
 # -- Dipendenze di base per Python, git, aria2, pip moderni, ecc.
 RUN apt-get update && \
@@ -20,22 +27,19 @@ ENV CUDA_HOME=/usr/local/cuda
 # -- Installa le altre dipendenze
 RUN pip install -r requirements.txt
 
-# -- Scarica il modello safetensors
-# RUN mkdir -p /models
-# RUN aria2c -o /models/flux_dev_fp8_scaled_diffusion_model.safetensors \
-#     https://huggingface.co/alexgenovese/checkpoint/resolve/main/FLUX/flux_dev_fp8_scaled_diffusion_model.safetensors
+# -- Script principale parametrizzato
+COPY main.py .
 
-# -- Script di compilazione Pruna
-COPY compile_with_pruna.py .
+# -- Imposta variabili d'ambiente dai parametri build
+ENV MODEL_DIFF=${MODEL_DIFF}
+ENV DOWNLOAD_DIR=${DOWNLOAD_DIR}
+ENV PRUNA_COMPILED_DIR=${PRUNA_COMPILED_DIR}
 
-# -- Compila e salva modello ottimizzato (eseguito in fase build!)
-RUN python3 compile_with_pruna.py
+# -- Scarica e compila modello con Pruna (usando parametri)
+RUN python3 main.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR}
 
 # -- (Facoltativo) Aggiungi ComfyUI e tuoi script custom
 # (inserisci qui eventuale COPY degli script comfyui/start.sh ecc.)
-
-# -- Directory cache/compiled per Pruna node di ComfyUI
-ENV PRUNA_COMPILED_DIR=/compiled_models
 
 # ONLY for TESTING: Esegui un test di inferenza con Pruna
 COPY test_pruna_infer.py /test_pruna_infer.py
@@ -43,4 +47,3 @@ CMD ["python3", "/test_pruna_infer.py"]
 
 # -- Avvio backend ComfyUI (modifica path/script come necessario!)
 # CMD ["python3", "comfyui_server.py"]
-
