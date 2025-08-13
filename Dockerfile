@@ -35,6 +35,7 @@ COPY main.py .
 ENV MODEL_DIFF=${MODEL_DIFF}
 ENV DOWNLOAD_DIR=${DOWNLOAD_DIR}
 ENV PRUNA_COMPILED_DIR=${PRUNA_COMPILED_DIR}
+ENV HF_TOKEN=${HF_TOKEN}
 
 # -- Scarica e compila modello con Pruna (usando parametri)
 RUN python3 main.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR} --hf-token ${HF_TOKEN}
