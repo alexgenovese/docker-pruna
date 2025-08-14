@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ComfyUI Server API per inferenza con modelli Flux Krea.
+FastAPI Server API per inferenza con modelli Flux Krea.
 Espone endpoint REST per generazione di immagini utilizzando i modelli compilati con Pruna.
 """
 
@@ -16,6 +16,15 @@ from pathlib import Path
 import torch
 from PIL import Image
 from flask import Flask, request, jsonify
+
+# Import dinamico delle funzioni di download/compilazione
+import importlib.util
+spec = importlib.util.spec_from_file_location("download_model_and_compile", os.path.join(os.path.dirname(__file__), "download_model_and_compile.py"))
+if spec and spec.loader:
+    dl_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dl_mod)
+else:
+    raise ImportError("Impossibile importare download_model_and_compile.py")
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 try:
     from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
@@ -290,7 +299,7 @@ def ping():
     """Endpoint di ping semplice"""
     return jsonify({
         'status': 'ok',
-        'message': 'ComfyUI Server is running',
+        'message': 'Server is running',
         'timestamp': str(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
     })
 
@@ -318,6 +327,92 @@ def health():
             'message': f'Health check failed: {str(e)}',
             'timestamp': str(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
         }), 500
+
+
+@app.route('/download', methods=['POST'])
+def download():
+    """Scarica i pesi di un modello HuggingFace se non già presenti, elimina .safetensors dalla root prima del download."""
+    try:
+        data = request.get_json() or {}
+        model_id = data.get('model_id') or data.get('modelId')
+        if not model_id:
+            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
+
+        # Controlla se il modello esiste già
+        model_exists, _, model_path, _ = dl_mod.check_model_exists(
+            model_id,
+            DEFAULT_CONFIG['download_dir'],
+            DEFAULT_CONFIG['compiled_dir']
+        )
+        if model_exists:
+            return jsonify({'status': 'ok', 'message': f'Modello già presente: {model_path}', 'model_path': model_path})
+
+        # Elimina tutti i .safetensors dalla root della repo
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        deleted = []
+        for fname in os.listdir(root_dir):
+            if fname.endswith('.safetensors'):
+                try:
+                    os.remove(os.path.join(root_dir, fname))
+                    deleted.append(fname)
+                except Exception:
+                    pass
+
+        # Scarica il modello
+        try:
+            model_path = dl_mod.download_model(
+                model_id,
+                DEFAULT_CONFIG['download_dir'],
+                torch_dtype=torch.float16 if DEFAULT_CONFIG['torch_dtype'] == 'float16' else torch.float32,
+                hf_token=DEFAULT_CONFIG['hf_token']
+            )
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': f'Errore nel download: {str(e)}'}), 500
+
+        return jsonify({'status': 'success', 'message': f'Modello scaricato in {model_path}', 'deleted_files': deleted, 'model_path': model_path})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
+
+
+@app.route('/compile', methods=['POST'])
+def compile():
+    """Compila i pesi di un modello già scaricato, se non presente restituisce errore."""
+    try:
+        data = request.get_json() or {}
+        model_id = data.get('model_id') or data.get('modelId')
+        compilation_mode = data.get('compilation_mode', 'moderate')
+        if not model_id:
+            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
+
+        # Controlla se il modello base esiste
+        model_exists, compiled_exists, model_path, compiled_path = dl_mod.check_model_exists(
+            model_id,
+            DEFAULT_CONFIG['download_dir'],
+            DEFAULT_CONFIG['compiled_dir']
+        )
+        if not model_exists:
+            return jsonify({'status': 'error', 'message': 'Modello non trovato. Scaricalo prima con /download-weights.'}), 404
+
+        # Se già compilato, restituisci info
+        if compiled_exists:
+            return jsonify({'status': 'ok', 'message': f'Modello già compilato: {compiled_path}', 'compiled_path': compiled_path})
+
+        # Compila il modello
+        try:
+            compiled_path = dl_mod.compile_model_with_pruna(
+                model_path,
+                DEFAULT_CONFIG['compiled_dir'],
+                torch.float16 if DEFAULT_CONFIG['torch_dtype'] == 'float16' else torch.float32,
+                compilation_mode,
+                DEFAULT_CONFIG['force_cpu'],
+                DEFAULT_CONFIG['device']
+            )
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': f'Errore nella compilazione: {str(e)}'}), 500
+
+        return jsonify({'status': 'success', 'message': f'Modello compilato e salvato in {compiled_path}', 'compiled_path': compiled_path})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
 
 
 @app.route('/generate', methods=['POST'])
@@ -511,16 +606,16 @@ def internal_error(error):
 def main():
     """Funzione principale per avviare il server"""
     import argparse
-    
-    parser = argparse.ArgumentParser(description='ComfyUI Server API')
+
+    parser = argparse.ArgumentParser(description='FastAPI Server API')
     parser.add_argument('--host', default='0.0.0.0', help='Host su cui avviare il server')
     parser.add_argument('--port', type=int, default=8000, help='Porta su cui avviare il server')
     parser.add_argument('--debug', action='store_true', help='Attiva modalità debug')
     parser.add_argument('--preload-model', help='Pre-carica un modello all\'avvio')
     
     args = parser.parse_args()
-    
-    print("🚀 Avvio ComfyUI Server...")
+
+    print("🚀 Avvio FastAPI Server...")
     print("=" * 50)
     
     # Stampa configurazione
