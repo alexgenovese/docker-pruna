@@ -1,3 +1,22 @@
+# Funzione pubblica per API: compila un modello dato un model_id
+def compile_model(model_id, download_dir, compiled_dir, torch_dtype='float16', compilation_mode='normal', force_cpu=False, device_override=None):
+    """
+    Compila un modello già scaricato dato un model_id e salva nella cartella compiled_dir.
+    """
+    import torch as _torch
+    model_name = model_id.replace('/', '--')
+    model_path = os.path.join(download_dir, model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Modello non trovato: {model_path}")
+    dtype = _torch.float16 if str(torch_dtype) == 'float16' else _torch.float32
+    return compile_model_with_pruna(
+        model_path,
+        compiled_dir,
+        torch_dtype=dtype,
+        compilation_mode=compilation_mode,
+        force_cpu=force_cpu,
+        device_override=device_override
+    )
 #!/usr/bin/env python3
 """
 Script principale per il download e la compilazione di modelli diffusers con Pruna.

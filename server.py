@@ -4,296 +4,131 @@ FastAPI Server API per inferenza con modelli Flux Krea.
 Espone endpoint REST per generazione di immagini utilizzando i modelli compilati con Pruna.
 """
 
+
 import os
 import sys
-import base64
-import io
-import json
-import traceback
-from typing import Dict, Any, Optional
-from pathlib import Path
-
+import shutil
 import torch
-from PIL import Image
-from flask import Flask, request, jsonify
+import traceback
+from pathlib import Path
+from flask import send_from_directory
+from typing import Dict, Any, Optional
+from lib.utils import load_model, get_best_available_device, validate_configuration, image_to_base64
+from lib.const import DEFAULT_CONFIG, MODEL_CACHE
 
-# Import dinamico delle funzioni di download/compilazione
 import importlib.util
 spec = importlib.util.spec_from_file_location("download_model_and_compile", os.path.join(os.path.dirname(__file__), "download_model_and_compile.py"))
 if spec and spec.loader:
     dl_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(dl_mod)
 else:
-    raise ImportError("Impossibile importare download_model_and_compile.py")
-from diffusers.pipelines.pipeline_utils import DiffusionPipeline
-try:
-    from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
-    FLUX_AVAILABLE = True
-except ImportError:
-    FLUX_AVAILABLE = False
-    FluxPipeline = None
-
-try:
-    from pruna import PrunaModel
-    PRUNA_AVAILABLE = True
-except ImportError:
-    PRUNA_AVAILABLE = False
-    PrunaModel = None
-
+    dl_mod = None
+from flask import Flask, request, jsonify, url_for
 
 # Configurazione dell'applicazione Flask
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 
-# Cache per il modello caricato
-MODEL_CACHE: Dict[str, Any] = {
-    'pipeline': None,
-    'model_path': None,
-    'model_type': None
-}
-
-# Configurazione di default (come in main.py)
-DEFAULT_CONFIG = {
-    'model_id': os.environ.get('MODEL_DIFF', 'stable-diffusion-v1-5'),
-    'download_dir': os.environ.get('DOWNLOAD_DIR', './models'),
-    'compiled_dir': os.environ.get('PRUNA_COMPILED_DIR', './compiled_models'),
-    'hf_token': os.environ.get('HF_TOKEN'),
-    'torch_dtype': 'float16',
-    'device': None,
-    'force_cpu': False
-}
 
 
-def detect_model_type(model_id_or_path):
-    """Rileva il tipo di modello basandosi sull'ID o path"""
-    model_str = str(model_id_or_path).lower()
-    
-    if 'flux' in model_str:
-        return 'flux'
-    elif any(keyword in model_str for keyword in ['stable-diffusion', 'sd-', 'compvis']):
-        return 'stable-diffusion'
-    else:
-        return 'generic'
+# Serve i file statici generati (immagini)
+@app.route('/generated_images/<path:filename>')
+def serve_generated_image(filename):
+    return send_from_directory('generated_images', filename)
 
-
-def get_best_available_device(force_cpu=False, device_override=None):
-    """Determina il miglior dispositivo disponibile"""
-    if force_cpu or device_override == 'cpu':
-        return "cpu"
-    
-    if device_override:
-        if device_override == 'cuda' and torch.cuda.is_available():
-            return "cuda"
-        elif device_override == 'mps' and torch.backends.mps.is_available():
-            return "mps"
-    
-    # Auto-detection
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.backends.mps.is_available():
-        return "mps"
-    else:
-        return "cpu"
-
-
-def validate_configuration() -> Dict[str, Any]:
-    """Valida la configurazione del sistema e ritorna lo stato"""
-    status = {
-        'valid': True,
-        'errors': [],
-        'warnings': [],
-        'config': {},
-        'system_info': {}
-    }
-    
-    # Verifica parametri di configurazione
-    for key, value in DEFAULT_CONFIG.items():
-        status['config'][key] = value
-        
-        if key in ['model_id'] and not value:
-            status['errors'].append(f"Parametro obbligatorio '{key}' non configurato")
-            status['valid'] = False
-    
-    # Verifica disponibilità dispositivi
-    status['system_info']['torch_version'] = torch.__version__
-    status['system_info']['cuda_available'] = torch.cuda.is_available()
-    status['system_info']['mps_available'] = torch.backends.mps.is_available()
-    status['system_info']['flux_available'] = FLUX_AVAILABLE
-    status['system_info']['pruna_available'] = PRUNA_AVAILABLE
-    
-    if torch.cuda.is_available():
-        status['system_info']['cuda_device_count'] = torch.cuda.device_count()
-        status['system_info']['cuda_device_name'] = torch.cuda.get_device_name(0)
-    
-    # Verifica directory modelli
-    if DEFAULT_CONFIG['compiled_dir']:
-        if not os.path.exists(DEFAULT_CONFIG['compiled_dir']):
-            status['warnings'].append(f"Directory modelli compilati non trovata: {DEFAULT_CONFIG['compiled_dir']}")
-    else:
-        status['warnings'].append("PRUNA_COMPILED_DIR non configurata")
-    
-    if DEFAULT_CONFIG['download_dir']:
-        if not os.path.exists(DEFAULT_CONFIG['download_dir']):
-            status['warnings'].append(f"Directory download non trovata: {DEFAULT_CONFIG['download_dir']}")
-    else:
-        status['warnings'].append("DOWNLOAD_DIR non configurata")
-    
-    # Verifica token HuggingFace
-    if not DEFAULT_CONFIG['hf_token']:
-        status['warnings'].append("HF_TOKEN non configurato - alcuni modelli potrebbero non essere accessibili")
-    
-    # Determina dispositivo di default
-    device = get_best_available_device(DEFAULT_CONFIG['force_cpu'], DEFAULT_CONFIG['device'])
-    status['system_info']['selected_device'] = device
-    
-    return status
-
-
-def find_model_path(model_id: str) -> tuple[Optional[str], bool]:
-    """Trova il path del modello, prioritizzando i modelli compilati
-    Ritorna (path, is_pruna_compiled)"""
-    
-    # Converti l'ID del modello in nome file
-    model_name = model_id.replace('/', '--')
-    
-    # Priorità 1: Modello compilato con Pruna
-    if DEFAULT_CONFIG['compiled_dir']:
-        # Cerca prima la directory con il nome diretto del modello
-        compiled_path = os.path.join(DEFAULT_CONFIG['compiled_dir'], model_name)
-        if os.path.exists(compiled_path):
-            # Verifica se contiene direttamente il smash_config.json
-            if os.path.exists(os.path.join(compiled_path, 'smash_config.json')):
-                return compiled_path, True
-            
-            # Altrimenti cerca nelle sottodirectory
-            if os.path.isdir(compiled_path):
-                for subdir in os.listdir(compiled_path):
-                    subdir_path = os.path.join(compiled_path, subdir)
-                    if os.path.isdir(subdir_path) and os.path.exists(os.path.join(subdir_path, 'smash_config.json')):
-                        return subdir_path, True
-        
-        # Cerca anche nella sottodirectory con nome duplicato (struttura legacy)
-        compiled_path_nested = os.path.join(DEFAULT_CONFIG['compiled_dir'], model_name, model_name)
-        if os.path.exists(compiled_path_nested) and os.path.exists(os.path.join(compiled_path_nested, 'smash_config.json')):
-            return compiled_path_nested, True
-    
-    # Priorità 2: Modello scaricato (non compilato)
-    if DEFAULT_CONFIG['download_dir']:
-        download_path = os.path.join(DEFAULT_CONFIG['download_dir'], model_name)
-        if os.path.exists(download_path):
-            # Verifica se contiene direttamente il model_index.json (standard per diffusers)
-            if os.path.exists(os.path.join(download_path, 'model_index.json')):
-                return download_path, False
-            
-            # Altrimenti cerca nelle sottodirectory
-            if os.path.isdir(download_path):
-                for subdir in os.listdir(download_path):
-                    subdir_path = os.path.join(download_path, subdir)
-                    if os.path.isdir(subdir_path) and os.path.exists(os.path.join(subdir_path, 'model_index.json')):
-                        return subdir_path, False
-        
-        # Cerca anche nella sottodirectory con nome duplicato
-        download_path_nested = os.path.join(DEFAULT_CONFIG['download_dir'], model_name, model_name)
-        if os.path.exists(download_path_nested) and os.path.exists(os.path.join(download_path_nested, 'model_index.json')):
-            return download_path_nested, False
-    
-    # Priorità 3: Path diretto se esiste
-    if os.path.exists(model_id):
-        # Verifica se è un modello Pruna o diffusers standard
-        is_pruna = os.path.exists(os.path.join(model_id, 'smash_config.json'))
-        return model_id, is_pruna
-    
-    return None, False
-
-
-def load_model(model_id: str, force_reload: bool = False) -> Any:
-    """Carica il modello in cache"""
-    
-    # Verifica se il modello è già caricato
-    if not force_reload and MODEL_CACHE['pipeline'] is not None and MODEL_CACHE['model_path'] == model_id:
-        return MODEL_CACHE['pipeline']
-    
-    # Trova il path del modello
-    model_path, is_pruna_compiled = find_model_path(model_id)
-    if not model_path:
-        raise FileNotFoundError(f"Modello non trovato: {model_id}")
-    
-    # Rileva il tipo di modello
-    model_type = detect_model_type(model_path)
-    
-    # Configura torch dtype
-    torch_dtype = torch.float16 if DEFAULT_CONFIG['torch_dtype'] == 'float16' else torch.float32
-    
-    # Determina dispositivo
-    device = get_best_available_device(DEFAULT_CONFIG['force_cpu'], DEFAULT_CONFIG['device'])
-    
-    print(f"Caricamento modello: {model_path}")
-    print(f"Tipo modello: {model_type}")
-    print(f"Modello compilato Pruna: {is_pruna_compiled}")
-    print(f"Dispositivo: {device}")
-    print(f"Dtype: {torch_dtype}")
-    
-    # Carica il modello basandosi sul tipo
-    pipeline = None
-    
+# Serve i file statici generati (immagini)
+@app.route('/delete-model', methods=['POST'])
+def delete_model():
+    """Elimina la cartella del modello scaricato o compilato dato un model_id e una tipologia ('downloaded' o 'compiled')."""
     try:
-        # Se il modello è compilato con Pruna, usa PrunaModel
-        if is_pruna_compiled and PRUNA_AVAILABLE and PrunaModel is not None:
-            print("Caricamento con PrunaModel...")
-            pipeline = PrunaModel.from_pretrained(model_path)
-            
-            # Per i modelli Pruna, non è necessario spostare esplicitamente sul dispositivo
-            # dato che Pruna gestisce automaticamente l'ottimizzazione
-            
-        elif model_type == 'flux' and FLUX_AVAILABLE and FluxPipeline is not None:
-            print("Caricamento con FluxPipeline...")
-            pipeline = FluxPipeline.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype,
-                use_safetensors=True
-            )
-        elif model_type == 'stable-diffusion':
-            print("Caricamento con StableDiffusionPipeline...")
-            from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import StableDiffusionPipeline
-            pipeline = StableDiffusionPipeline.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype,
-                use_safetensors=True,
-                safety_checker=None
-            )
-        else:
-            print("Caricamento con DiffusionPipeline generico...")
-            pipeline = DiffusionPipeline.from_pretrained(
-                model_path,
-                torch_dtype=torch_dtype,
-                use_safetensors=True
-            )
-        
-        # Sposta il modello sul dispositivo appropriato (solo per modelli non-Pruna)
-        if not is_pruna_compiled and device != "cpu":
-            pipeline = pipeline.to(device)
-        
-        # Salva in cache
-        MODEL_CACHE['pipeline'] = pipeline
-        MODEL_CACHE['model_path'] = model_id
-        MODEL_CACHE['model_type'] = model_type
-        MODEL_CACHE['is_pruna_compiled'] = is_pruna_compiled
-        
-        print(f"Modello caricato con successo in cache")
-        return pipeline
-        
+        data = request.get_json() or {}
+        model_id = data.get('model_id') or data.get('modelId')
+        model_type = data.get('type', 'all')  # 'downloaded', 'compiled', 'all'
+        if not model_id:
+            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
+
+        # Ricava i path
+        model_name = model_id.replace('/', '--')
+        download_path = os.path.join(DEFAULT_CONFIG['download_dir'], model_name)
+        compiled_path = os.path.join(DEFAULT_CONFIG['compiled_dir'], model_name)
+        deleted = []
+        errors = []
+
+        if model_type in ('downloaded', 'all'):
+            if os.path.exists(download_path):
+                try:
+                    shutil.rmtree(download_path)
+                    deleted.append({'type': 'downloaded', 'path': download_path})
+                except Exception as e:
+                    errors.append({'type': 'downloaded', 'path': download_path, 'error': str(e)})
+        if model_type in ('compiled', 'all'):
+            if os.path.exists(compiled_path):
+                try:
+                    shutil.rmtree(compiled_path)
+                    deleted.append({'type': 'compiled', 'path': compiled_path})
+                except Exception as e:
+                    errors.append({'type': 'compiled', 'path': compiled_path, 'error': str(e)})
+
+        if not deleted and not errors:
+            return jsonify({'status': 'not_found', 'message': 'Nessuna cartella trovata per il model_id specificato.'}), 404
+
+        return jsonify({'status': 'success' if not errors else 'partial', 'deleted': deleted, 'errors': errors})
     except Exception as e:
-        raise RuntimeError(f"Errore nel caricamento del modello: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
 
 
-def image_to_base64(image: Image.Image) -> str:
-    """Converte un'immagine PIL in stringa base64"""
-    buffer = io.BytesIO()
-    image.save(buffer, format='PNG')
-    img_str = base64.b64encode(buffer.getvalue()).decode()
-    return img_str
+# Endpoint per scaricare un modello (solo download, no compilazione)
+@app.route('/download', methods=['POST'])
+def download_model():
+    """Scarica un modello HuggingFace nella cartella di download."""
+    try:
+        data = request.get_json() or {}
+        model_id = data.get('model_id') or data.get('modelId')
+        if not model_id:
+            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
+
+        # Usa la funzione di download dal modulo dinamico
+        if not hasattr(dl_mod, 'download_model'):
+            return jsonify({'status': 'error', 'message': 'Funzione download_model non trovata in download_model_and_compile.py'}), 500
+
+        download_dir = DEFAULT_CONFIG['download_dir']
+        hf_token = DEFAULT_CONFIG['hf_token']
+        try:
+            dl_mod.download_model(model_id, download_dir, hf_token)
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': f'Errore nel download: {str(e)}'}), 500
+
+        return jsonify({'status': 'success', 'message': f'Modello {model_id} scaricato in {download_dir}'}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
 
 
+# Endpoint per compilare un modello già scaricato
+@app.route('/compile', methods=['POST'])
+def compile_model():
+    """Compila un modello già scaricato nella cartella compiled_dir."""
+    try:
+        data = request.get_json() or {}
+        model_id = data.get('model_id') or data.get('modelId')
+        if not model_id:
+            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
+
+        # Usa la funzione di compilazione dal modulo dinamico
+        if not hasattr(dl_mod, 'compile_model'):
+            return jsonify({'status': 'error', 'message': 'Funzione compile_model non trovata in download_model_and_compile.py'}), 500
+
+        download_dir = DEFAULT_CONFIG['download_dir']
+        compiled_dir = DEFAULT_CONFIG['compiled_dir']
+        try:
+            dl_mod.compile_model(model_id, download_dir, compiled_dir)
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': f'Errore nella compilazione: {str(e)}'}), 500
+
+        return jsonify({'status': 'success', 'message': f'Modello {model_id} compilato in {compiled_dir}'}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
+
+# Endpoint di ping
 @app.route('/ping', methods=['GET'])
 def ping():
     """Endpoint di ping semplice"""
@@ -303,7 +138,7 @@ def ping():
         'timestamp': str(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
     })
 
-
+# Endpoint di health check
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint di health check che valida la configurazione"""
@@ -328,93 +163,7 @@ def health():
             'timestamp': str(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
         }), 500
 
-
-@app.route('/download', methods=['POST'])
-def download():
-    """Scarica i pesi di un modello HuggingFace se non già presenti, elimina .safetensors dalla root prima del download."""
-    try:
-        data = request.get_json() or {}
-        model_id = data.get('model_id') or data.get('modelId')
-        if not model_id:
-            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
-
-        # Controlla se il modello esiste già
-        model_exists, _, model_path, _ = dl_mod.check_model_exists(
-            model_id,
-            DEFAULT_CONFIG['download_dir'],
-            DEFAULT_CONFIG['compiled_dir']
-        )
-        if model_exists:
-            return jsonify({'status': 'ok', 'message': f'Modello già presente: {model_path}', 'model_path': model_path})
-
-        # Elimina tutti i .safetensors dalla root della repo
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        deleted = []
-        for fname in os.listdir(root_dir):
-            if fname.endswith('.safetensors'):
-                try:
-                    os.remove(os.path.join(root_dir, fname))
-                    deleted.append(fname)
-                except Exception:
-                    pass
-
-        # Scarica il modello
-        try:
-            model_path = dl_mod.download_model(
-                model_id,
-                DEFAULT_CONFIG['download_dir'],
-                torch_dtype=torch.float16 if DEFAULT_CONFIG['torch_dtype'] == 'float16' else torch.float32,
-                hf_token=DEFAULT_CONFIG['hf_token']
-            )
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': f'Errore nel download: {str(e)}'}), 500
-
-        return jsonify({'status': 'success', 'message': f'Modello scaricato in {model_path}', 'deleted_files': deleted, 'model_path': model_path})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
-
-
-@app.route('/compile', methods=['POST'])
-def compile():
-    """Compila i pesi di un modello già scaricato, se non presente restituisce errore."""
-    try:
-        data = request.get_json() or {}
-        model_id = data.get('model_id') or data.get('modelId')
-        compilation_mode = data.get('compilation_mode', 'moderate')
-        if not model_id:
-            return jsonify({'status': 'error', 'message': 'Parametro "model_id" obbligatorio'}), 400
-
-        # Controlla se il modello base esiste
-        model_exists, compiled_exists, model_path, compiled_path = dl_mod.check_model_exists(
-            model_id,
-            DEFAULT_CONFIG['download_dir'],
-            DEFAULT_CONFIG['compiled_dir']
-        )
-        if not model_exists:
-            return jsonify({'status': 'error', 'message': 'Modello non trovato. Scaricalo prima con /download-weights.'}), 404
-
-        # Se già compilato, restituisci info
-        if compiled_exists:
-            return jsonify({'status': 'ok', 'message': f'Modello già compilato: {compiled_path}', 'compiled_path': compiled_path})
-
-        # Compila il modello
-        try:
-            compiled_path = dl_mod.compile_model_with_pruna(
-                model_path,
-                DEFAULT_CONFIG['compiled_dir'],
-                torch.float16 if DEFAULT_CONFIG['torch_dtype'] == 'float16' else torch.float32,
-                compilation_mode,
-                DEFAULT_CONFIG['force_cpu'],
-                DEFAULT_CONFIG['device']
-            )
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': f'Errore nella compilazione: {str(e)}'}), 500
-
-        return jsonify({'status': 'success', 'message': f'Modello compilato e salvato in {compiled_path}', 'compiled_path': compiled_path})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Errore interno: {str(e)}'}), 500
-
-
+# Endpoint per generazione di immagini
 @app.route('/generate', methods=['POST'])
 def generate():
     """Endpoint per generazione di immagini con Flux Krea"""
@@ -518,29 +267,25 @@ def generate():
                 'base64': img_b64,
                 'format': 'png'
             })
-            
             # Salva l'immagine in locale se debug = true
             if debug:
                 try:
-                    # Crea directory di output se non esiste
                     output_dir = "./generated_images"
                     os.makedirs(output_dir, exist_ok=True)
-                    
-                    # Genera nome file con timestamp
                     import datetime
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename = f"generated_{timestamp}_img_{i:02d}.png"
                     file_path = os.path.join(output_dir, filename)
-                    
-                    # Salva l'immagine
                     image.save(file_path)
+                    # URL assoluto per browser
+                    relative_url = url_for('serve_generated_image', filename=filename)
+                    absolute_url = request.host_url.rstrip('/') + relative_url
                     saved_files.append({
                         'index': i,
                         'filename': filename,
-                        'path': file_path
+                        'url': absolute_url
                     })
                     print(f"💾 Debug: Immagine salvata in {file_path}")
-                    
                 except Exception as e:
                     print(f"⚠️  Errore nel salvare l'immagine {i}: {str(e)}")
                     saved_files.append({
@@ -582,7 +327,7 @@ def generate():
             'traceback': traceback.format_exc()
         }), 500
 
-
+# Handler per errori 404
 @app.errorhandler(404)
 def not_found(error):
     """Handler per 404"""
@@ -592,7 +337,7 @@ def not_found(error):
         'available_endpoints': ['/ping', '/health', '/generate']
     }), 404
 
-
+# Handler per errori 500
 @app.errorhandler(500)
 def internal_error(error):
     """Handler per errori interni"""
@@ -602,7 +347,7 @@ def internal_error(error):
         'details': str(error)
     }), 500
 
-
+# Funzione principale per avviare il server
 def main():
     """Funzione principale per avviare il server"""
     import argparse

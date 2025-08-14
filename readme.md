@@ -1,3 +1,29 @@
+### /delete-model
+Elimina la cartella del modello scaricato o compilato (o entrambe) dato un `model_id`.
+
+**POST /delete-model**
+
+**Body JSON:**
+```json
+{
+  "model_id": "runwayml/stable-diffusion-v1-5",
+  "type": "all" // Opzionale: "downloaded", "compiled" o "all" (default)
+}
+```
+
+**Esempio CURL:**
+```bash
+curl -X POST http://localhost:8000/delete-model \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "type": "all"}'
+```
+
+**Risposta:**
+- `status`: "success" se tutte le cartelle sono state eliminate, "partial" se solo alcune, "not_found" se nessuna trovata, "error" in caso di errore interno.
+- `deleted`: lista delle cartelle eliminate.
+- `errors`: eventuali errori riscontrati.
+
+---
 # Docker Pruna - Download e Compilazione Modelli Diffusers
 
 Questo progetto fornisce un ambiente Docker parametrizzabile per scaricare e compilare modelli diffusion con l'ottimizzazione Pruna per inferenze più veloci.
@@ -188,84 +214,103 @@ optional arguments:
 - **Tempo**: ~30-60 minuti
 - **Qualità**: Massima, ottimizzazioni complete
 
-## 🌐 API Server
 
-Il progetto include un server Flask per l'inferenza via API REST. Il server carica automaticamente i modelli compilati con Pruna per prestazioni ottimizzate.
+## 🌐 API
 
-### Avvio del Server
+Il server espone i seguenti endpoint REST:
 
-```bash
-# Avvia il server (localhost:5000)
-python3 server.py
+### /download
+Scarica un modello HuggingFace nella cartella `models/` se non già presente. Elimina eventuali file `.safetensors` dalla root prima del download.
+
+**POST /download**
+
+**Body JSON:**
+```json
+{
+  "model_id": "runwayml/stable-diffusion-v1-5"
+}
 ```
 
-### Endpoint /generate - Esempi CURL
-
-#### Generazione Base
+**Esempio CURL:**
 ```bash
-curl -X POST http://localhost:5000/generate \
+curl -X POST http://localhost:8000/download \
   -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "stable-diffusion-v1-5",
-    "prompt": "A beautiful sunset over the ocean"
-  }'
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5"}'
 ```
 
-#### Generazione con Parametri Avanzati
-```bash
-curl -X POST http://localhost:5000/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "stable-diffusion-v1-5",
-    "prompt": "A futuristic city with flying cars",
-    "negative_prompt": "blurry, low quality, dark",
-    "num_inference_steps": 30,
-    "guidance_scale": 7.5,
-    "width": 768,
-    "height": 768,
-    "num_images": 2
-  }'
+---
+
+### /compile
+Compila un modello già scaricato con Pruna e lo salva in `compiled_models/`. Se il modello non è presente, restituisce errore.
+
+**POST /compile**
+
+**Body JSON:**
+```json
+{
+  "model_id": "runwayml/stable-diffusion-v1-5",
+  "compilation_mode": "moderate"  // Opzionale: fast, moderate, normal
+}
 ```
 
-#### Generazione con Debug (Salvataggio Locale)
+**Esempio CURL:**
 ```bash
-curl -X POST http://localhost:5000/generate \
+curl -X POST http://localhost:8000/compile \
   -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "stable-diffusion-v1-5",
-    "prompt": "A magical forest with glowing trees",
-    "debug": true,
-    "num_images": 3
-  }'
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "compilation_mode": "fast"}'
 ```
 
-#### Generazione Rapida per Test
-```bash
-curl -X POST http://localhost:5000/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "stable-diffusion-v1-5",
-    "prompt": "A red car",
-    "num_inference_steps": 10,
-    "width": 512,
-    "height": 512
-  }'
+---
+
+### /generate
+Genera immagini a partire da un prompt usando il modello compilato.
+
+**POST /generate**
+
+**Body JSON (esempio base):**
+```json
+{
+  "model_id": "runwayml/stable-diffusion-v1-5",
+  "prompt": "A beautiful sunset over the ocean"
+}
 ```
 
-#### Generazione ad Alta Qualità
+**Esempio CURL:**
 ```bash
-curl -X POST http://localhost:5000/generate \
+curl -X POST http://localhost:8000/generate \
   -H "Content-Type: application/json" \
-  -d '{
-    "model_id": "stable-diffusion-v1-5",
-    "prompt": "A detailed portrait of a wise old wizard",
-    "negative_prompt": "blurry, low quality, deformed",
-    "num_inference_steps": 50,
-    "guidance_scale": 12.0,
-    "width": 1024,
-    "height": 1024
-  }'
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "prompt": "A beautiful sunset over the ocean"}'
 ```
+
+---
+
+### /ping
+Verifica che il server sia attivo.
+
+**GET /ping**
+
+**Esempio CURL:**
+```bash
+curl http://localhost:8000/ping
+```
+
+---
+
+### /health
+Restituisce lo stato di salute e la configurazione del server.
+
+**GET /health**
+
+**Esempio CURL:**
+```bash
+curl http://localhost:8000/health
+```
+
+---
+
+**Nota:**
+- Tutti gli endpoint restituiscono risposte in formato JSON.
+- Cambia la porta (`8000`) se hai avviato il server su una porta diversa.
 
 #### Parametri Supportati
 
