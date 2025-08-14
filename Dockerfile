@@ -22,7 +22,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 
 # -- Installa prima torch e numpy separatamente (richiesti da auto-gptq e altri pacchetti)
-RUN pip install torch>=2.1 numpy
+# RUN pip install torch>=2.1 numpy
 
 # -- Imposta CUDA_HOME per i pacchetti che compilano estensioni CUDA
 ENV CUDA_HOME=/usr/local/cuda
@@ -46,8 +46,6 @@ ENV HF_TOKEN=${HF_TOKEN}
 # -- Scarica e compila modello con Pruna (usando parametri)
 RUN if [ -n "${HF_TOKEN}" ]; then \
         python3 download_model_and_compile.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR} --hf-token ${HF_TOKEN}; \
-    else \
-        python3 download_model_and_compile.py --torch-dtype ${TORCH_DTYPE} --model-id ${MODEL_DIFF} --download-dir ${DOWNLOAD_DIR} --compiled-dir ${PRUNA_COMPILED_DIR}; \
     fi
 
 

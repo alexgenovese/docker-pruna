@@ -77,6 +77,7 @@ docker build \
     $BUILD_ARGS \
     --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" \
     --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:latest" \
+    --debug \
     --platform linux/amd64 \
     .
 
