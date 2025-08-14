@@ -73,7 +73,6 @@ fi
 echo "📦 Costruzione immagine: $DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG"
 
 docker build \
-    --progress=plain \
     --build-arg MODEL_DIFF="$MODEL_DIFF" \
     $BUILD_ARGS \
     --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" \
