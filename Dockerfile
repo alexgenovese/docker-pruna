@@ -52,10 +52,7 @@ RUN if [ -n "${HF_TOKEN}" ]; then \
 FROM setup-server AS final 
 
 # Copia i modelli scaricati e compilati dalla fase precedente
-COPY --from=setup-server /app/models /app/models
-COPY --from=setup-server /app/compiled_models /app/compiled_models
 COPY --from=setup-server /app/server.py /app/server.py
-COPY --from=setup-server /app/test_pruna_infer.py /app/test_pruna_infer.py
 
 # ONLY for TESTING: Esegui un test di inferenza con Pruna
 # COPY test_pruna_infer.py /test_pruna_infer.py
