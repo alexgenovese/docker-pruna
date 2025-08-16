@@ -37,6 +37,7 @@ except ImportError:
     FluxPipeline = None
 from pruna import SmashConfig, smash
 from huggingface_hub import login
+from lib.pruna_config import PrunaModelConfigurator
 
 # Default values
 DEFAULT_DOWNLOAD_DIR = './models'
@@ -87,7 +88,7 @@ def parse_args():
 
 def detect_model_type(model_id):
     """
-    Detect the type of model based on model ID
+    Detect the type of model based on model ID - maintained for backward compatibility
     
     Args:
         model_id (str): Hugging Face model identifier
@@ -95,14 +96,8 @@ def detect_model_type(model_id):
     Returns:
         str: Model type ('flux', 'stable-diffusion', 'generic')
     """
-    model_id_lower = model_id.lower()
-    
-    if 'flux' in model_id_lower:
-        return 'flux'
-    elif any(keyword in model_id_lower for keyword in ['stable-diffusion', 'sd-', 'compvis']):
-        return 'stable-diffusion'
-    else:
-        return 'generic'
+    configurator = PrunaModelConfigurator()
+    return configurator.detect_model_type(model_id)
 
 
 def check_model_exists(model_id, download_dir, compiled_dir):
@@ -248,42 +243,10 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
     return model_path
 
 
-def get_best_available_device(force_cpu=False, device_override=None):
-    """
-    Determine the best available device for Pruna compilation
-    
-    Args:
-        force_cpu (bool): Force CPU usage
-        device_override (str): Override device selection
-    
-    Returns:
-        tuple: (device_name, is_mps_compatible)
-    """
-    if force_cpu or device_override == 'cpu':
-        return "cpu", True
-    
-    if device_override:
-        if device_override == 'cuda' and torch.cuda.is_available():
-            return "cuda", True
-        elif device_override == 'mps' and torch.backends.mps.is_available():
-            return "mps", False
-        elif device_override == 'cuda' and not torch.cuda.is_available():
-            print(f"⚠️  CUDA richiesto ma non disponibile, fallback automatico")
-        elif device_override == 'mps' and not torch.backends.mps.is_available():
-            print(f"⚠️  MPS richiesto ma non disponibile, fallback automatico")
-    
-    # Auto-detection
-    if torch.cuda.is_available():
-        return "cuda", True
-    elif torch.backends.mps.is_available():
-        return "mps", False  # MPS has limited compatibility with some Pruna features
-    else:
-        return "cpu", True
-
 
 def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16, compilation_mode='normal', force_cpu=False, device_override=None):
     """
-    Compile a diffusion model with Pruna optimization
+    Compile a diffusion model with Pruna optimization using the new configurator
     
     Args:
         model_path (str): Path to the model directory
@@ -296,20 +259,70 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     Returns:
         str: Path to the compiled model directory
     """
-    print(f"🔧 Compilazione modello con Pruna...")
+    print(f"🔧 Compilazione modello con Pruna usando configurazione ottimizzata...")
     print(f"📂 Modello sorgente: {model_path}")
     print(f"📁 Directory compilazione: {compiled_dir}")
     
     # Detect model type from path or use generic detection
     model_id_from_path = os.path.basename(model_path).replace('--', '/')
-    model_type = detect_model_type(model_id_from_path)
-    print(f"🔍 Tipo di modello rilevato per compilazione: {model_type}")
     
-    # Detect best available device and compatibility
-    device_name, is_fully_compatible = get_best_available_device(force_cpu, device_override)
-    print(f"💻 Dispositivo rilevato: {device_name}")
-    if not is_fully_compatible:
-        print(f"⚠️  Nota: {device_name} ha compatibilità limitata con alcune ottimizzazioni Pruna")
+    # Initialize Pruna configurator
+    configurator = PrunaModelConfigurator()
+    
+    # Detect model type
+    model_type = configurator.detect_model_type(model_id_from_path)
+    print(f"🔍 Tipo di modello rilevato: {model_type}")
+    
+    # Detect device
+    device_name = device_override if device_override else 'auto'
+    if force_cpu:
+        device_name = 'cpu'
+    
+    # Get model info and recommendations
+    model_info = configurator.get_model_info(model_id_from_path, device_name)
+    actual_device = model_info['device']
+    compatibility = model_info['compatibility']
+    
+    print(f"💻 Dispositivo selezionato: {actual_device}")
+    print(f"🔧 Modalità compilazione: {compilation_mode}")
+    
+    # Enhanced device diagnostics
+    print(f"\n🔍 Diagnostica dispositivo:")
+    try:
+        import torch as _torch_diag
+        print(f"   - PyTorch CUDA disponibile: {'✅' if _torch_diag.cuda.is_available() else '❌'}")
+        if _torch_diag.cuda.is_available():
+            print(f"   - Numero GPU: {_torch_diag.cuda.device_count()}")
+            print(f"   - GPU attuale: {_torch_diag.cuda.current_device()}")
+            print(f"   - Nome GPU: {_torch_diag.cuda.get_device_name(0)}")
+            print(f"   - Memoria GPU totale: {_torch_diag.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        print(f"   - Force CPU: {force_cpu}")
+        print(f"   - Device override: {device_override}")
+    except Exception as e:
+        print(f"   - Errore diagnostica: {e}")
+    
+    # Print compatibility info
+    print(f"\n✅ Compatibilità Pruna:")
+    print(f"   - FORA Cacher: {'✅' if compatibility['fora_cacher'] else '❌'}")
+    print(f"   - DeepCache: {'✅' if compatibility['deepcache'] else '❌'}")
+    print(f"   - Factorizer: {'✅' if compatibility['factorizer'] else '❌'}")
+    print(f"   - TorchCompile: {'✅' if compatibility['torch_compile'] else '❌'}")
+    print(f"   - HQQ Quantizer: {'✅' if compatibility['hqq_quantizer'] else '❌'}")
+    print(f"   - TorchAO Backend: {'✅' if compatibility['torchao_backend'] else '❌'}")
+    
+    # Get optimized Pruna configuration
+    smash_config = configurator.get_smash_config(
+        model_id_from_path, 
+        compilation_mode, 
+        actual_device, 
+        force_cpu
+    )
+    
+    print(f"📊 Configurazione Pruna ottimizzata:")
+    # SmashConfig doesn't support iteration, so we'll show a summary
+    print(f"   - Dispositivo: {actual_device}")
+    print(f"   - Modalità: {compilation_mode}")
+    print(f"   - Tipo modello: {model_type}")
     
     # Determine compiled model save path
     model_name = os.path.basename(model_path)
@@ -341,7 +354,7 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
                     print(f"⚠️  FluxPipeline fallito: {flux_e}")
                     pipeline = None
             
-            if pipeline is None and model_type == 'stable-diffusion':
+            if pipeline is None and model_type.startswith('stable-diffusion'):
                 print("🎨 Tentativo di caricamento con StableDiffusionPipeline...")
                 try:
                     pipeline = StableDiffusionPipeline.from_pretrained(
@@ -364,97 +377,18 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     else:
         raise RuntimeError(f"❌ Directory modello non trovata: {model_path}")
     
-    # Configure Pruna optimization based on compilation mode, device compatibility, and model type
-    smash_config = SmashConfig(device=device_name)
-    
-    # Special configuration for FLUX models
-    if model_type == 'flux':
-        print("🌊 Configurazione specifica per modelli FLUX")
-        if compilation_mode == 'fast':
-            print("🚀 Modalità VELOCE per FLUX: ottimizzazioni ultra-minimali")
-            # FLUX models are very large and complex, use minimal optimizations
-            if device_name != "mps":
-                smash_config["quantizer"] = "half"
-        elif compilation_mode == 'moderate':
-            print("⚖️  Modalità MODERATA per FLUX: ottimizzazioni bilanciate")
-            if device_name != "mps":
-                smash_config["quantizer"] = "hqq_diffusers"
-                smash_config["hqq_diffusers_weight_bits"] = 8
-                smash_config["hqq_diffusers_group_size"] = 128  # Larger group size for FLUX
-        else:  # normal
-            print("🎯 Modalità NORMALE per FLUX: ottimizzazioni complete ma conservative")
-            if device_name != "mps":
-                smash_config["quantizer"] = "hqq_diffusers"
-                smash_config["hqq_diffusers_weight_bits"] = 4
-                smash_config["hqq_diffusers_group_size"] = 64
-                if device_name == "cuda":
-                    smash_config["hqq_diffusers_backend"] = "torchao_int4"
-    else:
-        # Standard configuration for Stable Diffusion and other models
-        if compilation_mode == 'fast':
-            # Modalità veloce: compilazione rapida con ottimizzazioni leggere
-            print("🚀 Modalità VELOCE: ottimizzazioni rapide per tempi di compilazione ridotti")
-            if device_name == "mps":
-                # Per MPS configurazione ultra-minimale
-                pass  # Configurazione vuota
-            else:
-                # Caching leggero per velocità (solo non-MPS)
-                smash_config["cacher"] = "deepcache"
-                smash_config["deepcache_interval"] = 3  # Interval più alto per maggiore velocità
-                smash_config["compiler"] = "stable_fast"
-                # Quantizzazione leggera solo per non-MPS
-                smash_config["quantizer"] = "half"
-            
-        elif compilation_mode == 'moderate':
-            # Modalità moderata: bilanciamento tra velocità e qualità
-            print("⚖️  Modalità MODERATA: bilanciamento tra velocità di compilazione e qualità")
-            if device_name == "mps":
-                # Per MPS configurazione ultra-minimale
-                pass  # Configurazione vuota
-            else:
-                # Caching bilanciato (solo non-MPS)
-                smash_config["cacher"] = "deepcache"
-                smash_config["deepcache_interval"] = 2  # Interval bilanciato
-                # Compiler e quantizzazione moderati
-                smash_config["compiler"] = "torch_compile"
-                smash_config["torch_compile_mode"] = "default"
-                smash_config["quantizer"] = "hqq_diffusers"
-                smash_config["hqq_diffusers_weight_bits"] = 8
-                smash_config["hqq_diffusers_group_size"] = 64
-            
-        else:  # compilation_mode == 'normal'
-            # Modalità normale: qualità massima, tempi più lunghi
-            print("🎯 Modalità NORMALE: ottimizzazioni complete per la massima qualità")
-            
-            if device_name == "mps":
-                # Configurazione ultra-minimale per Apple Silicon (MPS)
-                print("🍎 Configurazione ultra-minimale per Apple Silicon (MPS)")
-                # Per MPS evitiamo tutte le ottimizzazioni incompatibili
-                # Usiamo solo quello che funziona certamente
-                pass  # Configurazione vuota - solo device targeting
-            else:
-                # Configurazione completa per CUDA/CPU
-                print("🖥️  Configurazione completa per CUDA/CPU")
-                # Caching avanzato con fattorizzazione
-                smash_config["cacher"] = "fora"
-                smash_config["fora_interval"] = 2
-                smash_config["fora_start_step"] = 2
-                # Factorizer per ottimizzazioni avanzate (solo su CUDA/CPU)
-                smash_config["factorizer"] = "qkv_diffusers"
-                # Compiler ottimizzato
-                smash_config["compiler"] = "torch_compile"
-                smash_config["torch_compile_mode"] = "max-autotune"
-                # Quantizzazione di alta qualità
-                smash_config["quantizer"] = "hqq_diffusers"
-                smash_config["hqq_diffusers_weight_bits"] = 4
-                smash_config["hqq_diffusers_group_size"] = 32
-                if device_name == "cuda":
-                    smash_config["hqq_diffusers_backend"] = "torchao_int4"
-    
-    print(f"📊 Configurazione Pruna applicata per modalità: {compilation_mode} - Tipo modello: {model_type}")
-    
     try:
-        print("🚀 Avvio compilazione Pruna...")
+        print("🚀 Avvio compilazione Pruna con configurazione ottimizzata...")
+        
+        # Force device setup if CUDA is available but not being used
+        if actual_device == 'cuda' and not force_cpu:
+            print("🎯 Forcing CUDA device setup per Pruna...")
+            import os
+            os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Ensure GPU 0 is visible
+            if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                torch.cuda.set_device(0)
+                print(f"   - CUDA device impostato: {torch.cuda.current_device()}")
+        
         compiled = smash(pipeline, smash_config=smash_config)
         
         # Save compiled model

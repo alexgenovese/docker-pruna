@@ -1,5 +1,5 @@
 # Esempio di Dockerfile personalizzato con ARG per parametri build-time
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 AS base
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS base
 
 # -- Argomenti build-time per personalizzazione
 ARG MODEL_DIFF=CompVis/stable-diffusion-v1-4
