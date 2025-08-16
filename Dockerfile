@@ -37,6 +37,9 @@ COPY download_model_and_compile.py .
 COPY server.py .
 COPY test_pruna_infer.py .
 
+# -- Copia la directory lib con tutti i moduli necessari
+COPY lib/ ./lib/
+
 # -- Imposta variabili d'ambiente dai parametri build
 ENV MODEL_DIFF=${MODEL_DIFF}
 ENV DOWNLOAD_DIR=${DOWNLOAD_DIR}
@@ -53,10 +56,14 @@ FROM setup-server AS final
 
 # Copia i modelli scaricati e compilati dalla fase precedente
 COPY --from=setup-server /app/server.py /app/server.py
+COPY --from=setup-server /app/lib/ /app/lib/
 
 # ONLY for TESTING: Esegui un test di inferenza con Pruna
 # COPY test_pruna_infer.py /test_pruna_infer.py
 # CMD ["python3", "/test_pruna_infer.py"]
+
+# -- Espone la porta 8000 utilizzata dal server Flask
+EXPOSE 8000
 
 # -- Avvio backend (modifica path/script come necessario!)
 CMD ["python3", "server.py"]
