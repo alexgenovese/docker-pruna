@@ -244,9 +244,275 @@ La classe `PrunaModelConfigurator` in `lib/pruna_config.py` gestisce automaticam
 ### Variabili d'Ambiente
 - `MODEL_DIFF`: ID del modello su Hugging Face (default: `CompVis/stable-diffusion-v1-4`)
 - `DOWNLOAD_DIR`: Directory per scaricare i modelli (default: `./models`)
-- `PRUNA_COMPILED_DIR`: Directory per salvare i modelli compilati (default: `./compiled_models`)
+```markdown
+### /delete-model
+Removes the downloaded or compiled model folder (or both) for a given `model_id`.
 
-### Argomenti CLI
+**POST /delete-model**
+
+**Body JSON:**
+```json
+{
+  "model_id": "runwayml/stable-diffusion-v1-5",
+  "type": "all" // Optional: "downloaded", "compiled" or "all" (default)
+}
+```
+
+**CURL example:**
+```bash
+curl -X POST http://localhost:8000/delete-model \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "type": "all"}'
+```
+
+**Response:**
+- `status`: "success" if all folders were deleted, "partial" if only some, "not_found" if none found, "error" on internal error.
+- `deleted`: list of deleted folders.
+- `errors`: any errors encountered.
+
+---
+# Docker Pruna - Download and Compile Diffusers Models
+
+This project provides a configurable Docker environment and CLI to download and compile diffusion models with Pruna optimizations for faster inference.
+
+## 🚀 Main Features
+
+- Configurable: easily set model id, download and compiled directories
+- Flexible: supports multiple Hugging Face models
+- Optimized: uses Pruna to accelerate inference
+- Docker-ready: container-friendly workflow
+
+## 📋 Configurable Parameters
+
+The main CLI script accepts these parameters.
+
+### Environment Variables
+- `MODEL_DIFF`: Hugging Face model ID (default: `CompVis/stable-diffusion-v1-4`)
+- `DOWNLOAD_DIR`: Directory for downloaded models (default: `./models`)
+- `PRUNA_COMPILED_DIR`: Directory for compiled Pruna models (default: `./compiled_models`)
+
+### CLI Arguments
+```bash
+python3 main.py --help
+
+optional arguments:
+  --model-id MODEL_ID    Hugging Face model ID to download
+  --download-dir DIR     Directory to download models
+  --compiled-dir DIR     Directory to save compiled Pruna models
+  --skip-download        Skip download step (use existing model)
+  --skip-compile         Skip compilation step (only download)
+  --torch-dtype TYPE     Torch dtype for model loading (float16/float32)
+```
+
+## 🛠️ Usage
+
+### Docker Build Examples
+
+```bash
+# Build with default model
+docker build -t docker-pruna .
+
+# Build with a custom model
+docker build --build-arg MODEL_DIFF="runwayml/stable-diffusion-v1-5" -t docker-pruna .
+
+# Build with custom directories
+docker build \
+  --build-arg MODEL_DIFF="stabilityai/stable-diffusion-2-1" \
+  --build-arg DOWNLOAD_DIR="/app/custom_models" \
+  --build-arg PRUNA_COMPILED_DIR="/app/custom_compiled" \
+  -t docker-pruna .
+```
+
+### Local Usage
+
+```bash
+# Example 1: Auto-check — does nothing if the model is already present
+python3 download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
+
+# Example 2: Download and compile with fast compilation mode
+python3 download_model_and_compile.py --model-id CompVis/stable-diffusion-v1-4 --compilation-mode fast
+
+# Example 3: Use custom folders
+python3 download_model_and_compile.py --model-id <MODEL_ID> --download-dir /custom/path --compiled-dir /custom/compiled
+```
+
+### Tests
+
+```bash
+# Run all tests
+./test_main.sh
+
+# Manual inference test
+python3 test_pruna_infer.py
+```
+
+## 📁 Directory Structure
+
+```
+/app/
+├── main.py                    # Main parameterizable script
+├── models/                    # Downloaded original models
+│   └── CompVis--stable-diffusion-v1-4/
+├── compiled_models/           # Pruna-optimized models
+│   └── CompVis--stable-diffusion-v1-4/
+├── test_pruna_infer.py        # Inference test
+└── test_main.sh               # Test script
+```
+
+## 🔧 Advanced Configuration
+
+### Customizing Dockerfile
+
+Modify the Dockerfile to change defaults:
+
+```dockerfile
+# Change default model
+ENV MODEL_DIFF=runwayml/stable-diffusion-v1-5
+ENV DOWNLOAD_DIR=/app/models
+ENV PRUNA_COMPILED_DIR=/app/compiled_models
+```
+
+### ComfyUI Integration
+
+Compiled models live in `/app/compiled_models/` and can be consumed by ComfyUI Pruna nodes by pointing ComfyUI to that path.
+
+## 🎯 What Happens When the Container Starts
+
+1. Download: the specified model is downloaded from Hugging Face.
+2. Compile: Pruna optimizes the model for faster inference.
+3. Ready: the optimized model is available for immediate use.
+
+Inference can start without repeated compilations.
+
+## 💡 Tips
+
+- Use `--skip-download` if you already have the model downloaded.
+- Use `--skip-compile` to only download the model.
+- Align PyTorch/Pruna versions between build and runtime.
+- Consider multi-stage Docker builds for smaller production images.
+
+## 🚨 Requirements
+
+- CUDA 12.1+ for GPU support
+- Python 3.8+
+- Enough disk space for models (3-7GB per model)
+- Hugging Face token for private models (optional)
+
+# Docker Pruna — Diffusers Models with Smart Pruna Configuration
+
+This repository adds a smart configurator that automatically handles compatibility between models, devices and Pruna optimizations.
+
+## 🚀 Highlights
+
+- Smart configuration: automatic Pruna compatibility per model
+- Multi-model support: SD 1.5/XL/3.5, FLUX, Qwen, Wan and others
+- Multi-device support: CUDA, CPU and Apple Silicon (MPS)
+- Three compilation modes: Fast, Moderate, Normal (speed vs quality)
+- Auto-detection: model type and compatibility detection
+- Robustness: avoids common incompatibilities (e.g. "Model is not compatible with fora")
+- Docker-friendly
+
+## 🚀 Quick Start
+
+### Initial Setup
+```bash
+# 1. Clone and install
+git clone <your-repo>
+cd docker-pruna
+pip install -r requirements.txt
+
+# 2. Optional system checks (recommended)
+python3 test_pruna_cuda.py        # CUDA/Pruna diagnostics
+python3 check_pruna_setup.py      # Check versions and deps
+```
+
+### Standard Compilation
+```bash
+# Automatic mode (handles whole workflow)
+python3 download_model_and_compile.py \
+  --model-id runwayml/stable-diffusion-v1-5 \
+  --compilation-mode moderate
+```
+
+### Quick Troubleshooting
+
+#### If you hit GPU memory issues:
+```bash
+# Recommended automatic restart + clean
+./restart_clean_compile.sh runwayml/stable-diffusion-v1-5 fast
+```
+
+#### If Pruna compiles for CPU while you have a GPU:
+```bash
+# Force CUDA compilation
+python3 force_cuda_compile.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
+```
+
+#### To run diagnostics:
+```bash
+python3 test_pruna_cuda.py
+```
+
+## 🧠 PrunaModelConfigurator
+
+`PrunaModelConfigurator` (in `lib/pruna_config.py`) handles model detection and produces safe, device-aware Pruna smash configurations.
+
+### Supported model types
+- Stable Diffusion 1.5: `runwayml/stable-diffusion-v1-5`, `CompVis/stable-diffusion-v1-4`
+- Stable Diffusion XL: `stabilityai/stable-diffusion-xl-base-1.0`
+- Stable Diffusion 3.5: `stabilityai/stable-diffusion-3.5-large`
+- FLUX: `black-forest-labs/FLUX.1-dev`
+- Qwen: `Qwen/Qwen2-7B`
+- Wan models and other generics (fallback)
+
+### Device compatibility table (summary)
+
+| Feature | CUDA | CPU | MPS (Apple) |
+|--------:|:----:|:---:|:-----------:|
+| FORA Cacher | ✅ (SDXL/FLUX) | ⚠️ limited | ❌ |
+| DeepCache | ✅ | ✅ | ❌ |
+| Factorizer | ✅ | ⚠️ | ❌ |
+| TorchCompile | ✅ | ✅ | ❌ |
+| HQQ Quantizer | ✅ | ✅ | ⚠️ (SD only) |
+| TorchAO Backend | ✅ | ❌ | ❌ |
+
+### Safety & fallbacks
+
+- Avoids "Model is not compatible with fora" for SD 1.5 by switching to DeepCache.
+- Disables DeepCache and other incompatible options on MPS.
+- Provides conservative fallbacks for devices with limited support.
+
+## 🎛️ Compilation Modes
+
+### 🚀 Fast
+Use for rapid prototyping and testing.
+- CUDA/CPU: DeepCache + half quantization
+- MPS: minimal device-only config
+- Time: ~5-10 minutes
+- Quality: good
+
+### ⚖️ Moderate
+Balanced production mode.
+- CUDA: DeepCache + TorchCompile + HQQ 8-bit
+- CPU: similar without TorchAO
+- Time: ~15-25 minutes
+- Quality: high
+
+### 🎯 Normal
+Max quality (longer), intended for critical production.
+- CUDA: FORA + Factorizer + TorchCompile autotune + HQQ 4-bit
+- CPU: DeepCache with conservative opts
+- MPS: ultra-safe config
+- Time: ~30-60 minutes
+
+## 📋 Configurable Parameters (CLI & ENV)
+
+### Environment variables
+- `MODEL_DIFF` — default model id
+- `DOWNLOAD_DIR` — where models are stored
+- `PRUNA_COMPILED_DIR` — where compiled models are written
+
+### CLI flags
 ```bash
 python3 download_model_and_compile.py --help
 
@@ -262,25 +528,24 @@ optional arguments:
   --device DEVICE                  Override device selection (auto/cuda/mps/cpu)
 ```
 
-## 🔧 Utilizzo della Classe PrunaModelConfigurator
+## 🔧 Programmatic Usage
 
-### Uso Programmatico
 ```python
 from lib.pruna_config import PrunaModelConfigurator
 
-# Crea il configuratore
+# Create configurator
 configurator = PrunaModelConfigurator()
 
-# Rileva tipo di modello
+# Detect model type
 model_type = configurator.detect_model_type("runwayml/stable-diffusion-v1-5")
-print(f"Tipo: {model_type}")  # Output: stable-diffusion-1.5
+print(f"Type: {model_type}")  # e.g. stable-diffusion-1.5
 
-# Ottieni informazioni complete
+# Get model info
 info = configurator.get_model_info("runwayml/stable-diffusion-v1-5")
-print(f"Dispositivo: {info['device']}")
-print(f"Compatibilità FORA: {info['compatibility']['fora_cacher']}")
+print(f"Device: {info['device']}")
+print(f"FORA compatibility: {info['compatibility']['fora_cacher']}")
 
-# Genera configurazione ottimizzata
+# Generate an optimized smash config
 config = configurator.get_smash_config(
     model_id="runwayml/stable-diffusion-v1-5",
     compilation_mode="moderate",
@@ -288,18 +553,16 @@ config = configurator.get_smash_config(
 )
 ```
 
-### Test delle Configurazioni
+### Configuration tests
 ```bash
-# Testa tutte le configurazioni per diversi modelli
+# Validate configurator recommendations for multiple models
 python3 test_pruna_config.py
-
-# Output mostra compatibilità e raccomandazioni per ogni modello
 ```
 
-Il server espone i seguenti endpoint REST:
+## REST API Endpoints
 
 ### /download
-Scarica un modello HuggingFace nella cartella `models/` se non già presente. Elimina eventuali file `.safetensors` dalla root prima del download.
+Download a Hugging Face model into `models/` if not already present.
 
 **POST /download**
 
@@ -310,7 +573,7 @@ Scarica un modello HuggingFace nella cartella `models/` se non già presente. El
 }
 ```
 
-**Esempio CURL:**
+**CURL example:**
 ```bash
 curl -X POST http://localhost:8000/download \
   -H "Content-Type: application/json" \
@@ -320,7 +583,7 @@ curl -X POST http://localhost:8000/download \
 ---
 
 ### /compile
-Compila un modello già scaricato con Pruna e lo salva in `compiled_models/`. Se il modello non è presente, restituisce errore.
+Compile a previously downloaded model with Pruna and save to `compiled_models/`. Returns an error if the model is not available.
 
 **POST /compile**
 
@@ -328,11 +591,11 @@ Compila un modello già scaricato con Pruna e lo salva in `compiled_models/`. Se
 ```json
 {
   "model_id": "runwayml/stable-diffusion-v1-5",
-  "compilation_mode": "moderate"  // Opzionale: fast, moderate, normal
+  "compilation_mode": "moderate"  // Optional: fast, moderate, normal
 }
 ```
 
-**Esempio CURL:**
+**CURL example:**
 ```bash
 curl -X POST http://localhost:8000/compile \
   -H "Content-Type: application/json" \
@@ -342,11 +605,11 @@ curl -X POST http://localhost:8000/compile \
 ---
 
 ### /generate
-Genera immagini a partire da un prompt usando il modello compilato.
+Generate images from a prompt using a compiled model.
 
 **POST /generate**
 
-**Body JSON (esempio base):**
+**Body JSON (example):**
 ```json
 {
   "model_id": "runwayml/stable-diffusion-v1-5",
@@ -354,7 +617,7 @@ Genera immagini a partire da un prompt usando il modello compilato.
 }
 ```
 
-**Esempio CURL:**
+**CURL example:**
 ```bash
 curl -X POST http://localhost:8000/generate \
   -H "Content-Type: application/json" \
@@ -364,11 +627,11 @@ curl -X POST http://localhost:8000/generate \
 ---
 
 ### /ping
-Verifica che il server sia attivo.
+Check server liveness.
 
 **GET /ping**
 
-**Esempio CURL:**
+**CURL example:**
 ```bash
 curl http://localhost:8000/ping
 ```
@@ -376,61 +639,36 @@ curl http://localhost:8000/ping
 ---
 
 ### /health
-Restituisce lo stato di salute e la configurazione del server.
+Return health and configuration details about the server.
 
 **GET /health**
 
-**Esempio CURL:**
+**CURL example:**
 ```bash
 curl http://localhost:8000/health
 ```
-### /delete-model
-Elimina la cartella del modello scaricato o compilato (o entrambe) dato un `model_id`.
-
-**POST /delete-model**
-
-**Body JSON:**
-```json
-{
-  "model_id": "runwayml/stable-diffusion-v1-5",
-  "type": "all" // Opzionale: "downloaded", "compiled" o "all" (default)
-}
-```
-
-**Esempio CURL:**
-```bash
-curl -X POST http://localhost:8000/delete-model \
-  -H "Content-Type: application/json" \
-  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "type": "all"}'
-```
-
-**Risposta:**
-- `status`: "success" se tutte le cartelle sono state eliminate, "partial" se solo alcune, "not_found" se nessuna trovata, "error" in caso di errore interno.
-- `deleted`: lista delle cartelle eliminate.
-- `errors`: eventuali errori riscontrati.
 
 ---
----
 
-**Nota:**
-- Tutti gli endpoint restituiscono risposte in formato JSON.
-- Cambia la porta (`8000`) se hai avviato il server su una porta diversa.
+**Note:**
+- All endpoints return JSON responses.
+- Change the port (`8000`) if the server runs on a different port.
 
-#### Parametri Supportati
+#### Supported parameters
 
-| Parametro | Tipo | Default | Descrizione |
+| Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `model_id` | string | **richiesto** | ID del modello (nome cartella in compiled_models/) |
-| `prompt` | string | **richiesto** | Prompt di generazione |
-| `negative_prompt` | string | `""` | Prompt negativo (cosa evitare) |
-| `num_inference_steps` | int | `20` | Numero di step di denoising (10-100) |
-| `guidance_scale` | float | `7.5` | Aderenza al prompt (1.0-20.0) |
-| `width` | int | `512` | Larghezza immagine (multipli di 8) |
-| `height` | int | `512` | Altezza immagine (multipli di 8) |
-| `num_images` | int | `1` | Numero di immagini da generare |
-| `debug` | bool | `false` | Salva immagini in locale (./generated_images/) |
+| `model_id` | string | **required** | Model identifier (folder name in compiled_models/) |
+| `prompt` | string | **required** | Generation prompt |
+| `negative_prompt` | string | `""` | Negative prompt (what to avoid) |
+| `num_inference_steps` | int | `20` | Denoising steps (10-100) |
+| `guidance_scale` | float | `7.5` | Prompt adherence (1.0-20.0) |
+| `width` | int | `512` | Image width (multiple of 8) |
+| `height` | int | `512` | Image height (multiple of 8) |
+| `num_images` | int | `1` | Number of images to generate |
+| `debug` | bool | `false` | Save images locally in `./generated_images/` |
 
-#### Risposta API
+#### Example API response
 
 ```json
 {
@@ -443,533 +681,294 @@ curl -X POST http://localhost:8000/delete-model \
 }
 ```
 
-**Note:**
-- Le immagini sono codificate in base64 nel campo `images`
-- Con `debug: true`, le immagini vengono salvate in `./generated_images/`
-- Il server usa automaticamente modelli Pruna se disponibili per prestazioni ottimizzate
-- Tempi di risposta tipici: 1-5 secondi (dipende da parametri e hardware)
+**Notes:**
+- Images are returned as base64 strings in the `images` field.
+- With `debug: true`, generated images are saved in `./generated_images/`.
+- The server uses Pruna-compiled models automatically when available for faster inference.
+- Typical response time varies (1-5 seconds) depending on hardware and parameters.
 
-## 🛠️ Utilizzo
+## 🛠️ Practical Usage
 
-## 🛠️ Utilizzo Pratico
-
-### Esempi di Compilazione con Configurazione Intelligente
+### Compilation examples
 
 ```bash
-# 1. Stable Diffusion 1.5 (evita automaticamente errore FORA)
+# 1. Stable Diffusion 1.5 (auto-fallback avoids FORA incompatibility)
 python3 download_model_and_compile.py \
   --model-id runwayml/stable-diffusion-v1-5 \
   --compilation-mode normal
 
-# 2. FLUX con modalità veloce per test
+# 2. FLUX quick mode for testing
 python3 download_model_and_compile.py \
   --model-id black-forest-labs/FLUX.1-dev \
   --compilation-mode fast
 
-# 3. SDXL con ottimizzazioni complete su CUDA
+# 3. SDXL full optimizations on CUDA
 python3 download_model_and_compile.py \
   --model-id stabilityai/stable-diffusion-xl-base-1.0 \
   --compilation-mode normal \
   --device cuda
 
-# 4. Compilazione sicura su Apple Silicon
+# 4. Safe compile on Apple Silicon
 python3 download_model_and_compile.py \
   --model-id runwayml/stable-diffusion-v1-5 \
   --compilation-mode moderate \
   --device mps
 
-# 5. Solo download senza compilazione
+# 5. Only download
 python3 download_model_and_compile.py \
   --model-id CompVis/stable-diffusion-v1-4 \
   --skip-compile
 
-# 6. Solo compilazione di modello esistente
+# 6. Only compile an existing model
 python3 download_model_and_compile.py \
   --model-id runwayml/stable-diffusion-v1-5 \
   --skip-download \
   --compilation-mode fast
 ```
 
-### 🆕 Nuovi Script di Gestione Avanzata
+### New helper scripts
 
-#### 🧠 Script di Diagnostica CUDA e Pruna
+#### CUDA / Pruna diagnostics
 ```bash
-# Verifica completa setup CUDA e compatibilità Pruna
+# Full CUDA / Pruna diagnostics
 python3 test_pruna_cuda.py
 
-# Controlla versioni e dipendenze
+# Check versions and dependencies
 python3 check_pruna_setup.py
 ```
 
-#### 🚀 Compilazione Forzata CUDA
+#### Force CUDA compile
 ```bash
-# Forza utilizzo CUDA bypassando auto-detection
 python3 force_cuda_compile.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
 
-# Modalità disponibili: fast, moderate, normal
+# Modes: fast, moderate, normal
 python3 force_cuda_compile.py --model-id black-forest-labs/FLUX.1-dev --mode moderate
 ```
 
-#### 🧹 Gestione Memoria GPU Intelligente
+#### Memory-aware compilation
 ```bash
-# Compilazione con gestione ottimizzata della memoria
 python3 compile_with_memory_mgmt.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
 
-# Riavvio con pulizia memoria automatica
 ./restart_clean_compile.sh runwayml/stable-diffusion-v1-5 fast
 ```
 
-### 🔧 Risoluzione Problemi Avanzata
+### Advanced troubleshooting
 
-#### ❌ Problema: "Compiling for CPU" anche con CUDA disponibile
+#### Problem: "Compiling for CPU" even if CUDA is available
 
-**Causa**: Auto-detection conservativa di Pruna o memoria GPU insufficiente
+Cause: conservative auto-detection by Pruna or insufficient GPU memory.
 
-**Soluzioni:**
+Solutions:
 ```bash
-# 1. Forza utilizzo CUDA esplicito
+# 1. Force CUDA explicitly
 python3 force_cuda_compile.py --model-id MODEL_ID --mode fast
 
-# 2. Gestione memoria ottimizzata  
+# 2. Use memory-aware compilation
 python3 compile_with_memory_mgmt.py --model-id MODEL_ID --mode fast
 
-# 3. Restart con memoria pulita
+# 3. Restart with clean memory
 ./restart_clean_compile.sh MODEL_ID fast
 
-# 4. Variabili d'ambiente ottimali
+# 4. Set recommended env vars
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True,max_split_size_mb:512"
 export CUDA_VISIBLE_DEVICES=0
 python3 download_model_and_compile.py --device cuda --model-id MODEL_ID
 ```
 
-#### ❌ Problema: "CUDA out of memory" durante compilazione
+#### Problem: "CUDA out of memory" during compilation
+Cause: GPU memory is already occupied by other processes.
 
-**Causa**: Memoria GPU saturata da processi precedenti
-
-**Soluzioni automatiche:**
+Automatic fixes:
 ```bash
-# 1. Script restart automatico (RACCOMANDATO)
 ./restart_clean_compile.sh runwayml/stable-diffusion-v1-5 fast
 
-# 2. Gestione memoria manuale
 python3 compile_with_memory_mgmt.py --model-id MODEL_ID --mode fast
 
-# 3. Modalità ultra-leggera
 python3 download_model_and_compile.py \
   --model-id MODEL_ID \
   --compilation-mode fast \
   --device cuda
 ```
 
-#### 🔍 Diagnostica Problemi Setup
-
+#### Diagnostics
 ```bash
-# Verifica completa ambiente
 python3 test_pruna_cuda.py
 
-# Output esempio:
-# ✅ CUDA disponibile: True
-# ✅ GPU: NVIDIA GeForce RTX 4090  
-# ✅ Memoria totale: 24.0 GB
-# ❌ Pruna CUDA: Errore configurazione
-# 💡 Raccomandazione: Reinstalla Pruna
+# Example output:
+# ✅ CUDA available: True
+# ✅ GPU: NVIDIA GeForce RTX 4090
+# ✅ Total GPU memory: 24.0 GB
+# ❌ Pruna CUDA: configuration error
+# 💡 Recommendation: reinstall Pruna
 ```
 
-### Risoluzione Problemi Comuni
+### Common issues and automatic fixes
 
-#### ❌ Errore "Model is not compatible with fora"
-**Prima (problematico):**
-```bash
-# Questo dava errore con SD 1.5
---compilation-mode normal  # usava FORA per SD 1.5
-```
+| Issue | Affected models | Automatic fix |
+|------|------------------|---------------|
+| "Model is not compatible with fora" | SD 1.5, SD 1.4 | Switch to DeepCache instead of FORA |
+| "deepcache is not compatible with device mps" | All on MPS | Disable DeepCache on MPS |
+| Missing optional deps on MPS | HQQ & others | Disable HQQ on MPS |
+| Missing packages | Various optimizations | Fallback to safe minimal config |
 
-**Dopo (risolto automaticamente):**
-```bash
-# Ora funziona perfettamente - usa DeepCache invece di FORA
-python3 download_model_and_compile.py \
-  --model-id runwayml/stable-diffusion-v1-5 \
-  --compilation-mode normal
-```
-
-#### ❌ Errore "deepcache is not compatible with device mps"  
-**Risolto automaticamente**: La classe detecta MPS e usa configurazione ultra-minimale.
-
-#### ❌ Dipendenze mancanti su MPS
-**Risolto automaticamente**: Disabilita HQQ e altre ottimizzazioni problematiche su Apple Silicon.
-
-### File di Configurazione Intelligente
-
-Il sistema ora include:
+## File layout and helper scripts
 
 ```
 lib/
-├── pruna_config.py          # Classe configuratore intelligente
-├── const.py                 # Costanti
+├── pruna_config.py          # Smart configurator
+├── const.py                 # Constants
 └── utils.py                 # Utilities
 
-# Script principali
-download_model_and_compile.py # Script aggiornato con configuratore
-test_pruna_config.py         # Script di test configurazioni
-
-# 🆕 Nuovi script diagnostica e gestione memoria
-test_pruna_cuda.py           # Diagnostica completa CUDA/Pruna
-check_pruna_setup.py         # Verifica versioni e dipendenze
-force_cuda_compile.py        # Compilazione forzata CUDA
-compile_with_memory_mgmt.py  # Gestione intelligente memoria GPU
-restart_clean_compile.sh     # Restart automatico con pulizia memoria
+download_model_and_compile.py # Main script
+test_pruna_config.py         # Configurator tests
+test_pruna_cuda.py           # CUDA/Pruna diagnostics
+check_pruna_setup.py         # Setup checker
+force_cuda_compile.py        # Force CUDA compile helper
+compile_with_memory_mgmt.py  # Memory-aware compilation
+restart_clean_compile.sh     # Restart and clean memory helper
 ```
 
-## 🔧 Utilizzo Docker
+## 🔧 Docker usage
 
-### Docker Build con Parametri
-
+### Build examples
 ```bash
-# Build con modello di default (modalità normal)
 docker build -t docker-pruna .
-
-# Build con modalità veloce
 docker build --build-arg COMPILATION_MODE=fast -t docker-pruna .
-
-# Build con modello personalizzato e modalità moderata
 docker build \
   --build-arg MODEL_DIFF="runwayml/stable-diffusion-v1-5" \
   --build-arg COMPILATION_MODE=moderate \
   -t docker-pruna .
 ```
 
-### Test e Validazione
-
+### Test and validation
 ```bash
-# Testa tutte le configurazioni per diversi modelli
 python3 test_pruna_config.py
-
-# Test manuale del modello compilato
 python3 test_pruna_infer.py
-
-# Esegui tutti i test
 ./test_main.sh
 ```
 
-## 📁 Struttura Directory
+## 🎯 ComfyUI integration
 
-```
-/app/
-├── main.py                    # Script principale parametrizzabile
-├── models/                    # Modelli scaricati originali
-│   └── CompVis--stable-diffusion-v1-4/
-├── compiled_models/           # Modelli ottimizzati con Pruna
-│   └── CompVis--stable-diffusion-v1-4/
-├── test_pruna_infer.py       # Test di inferenza
-└── test_main.sh              # Script di test
-```
+To integrate with ComfyUI, copy compiled models into ComfyUI's model path or point ComfyUI to the `compiled_models` directory. The project includes examples to export compiled models into ComfyUI checkpoints.
 
-## 🎯 Cosa Succede all'Avvio Container
+## 🚨 System requirements
 
-1. **Download**: Il modello specificato viene scaricato da Hugging Face
-2. **Compilazione**: Pruna ottimizza il modello secondo la modalità scelta
-3. **Ready**: Il modello ottimizzato è disponibile per l'uso immediato
-
-L'inferenza parte istantaneamente senza compilazioni ripetute!
-
-## 🔧 Configurazione Avanzata
-
-### ComfyUI Integration
-
-Il modello compilato sarà disponibile in `/compiled_models/` e può essere utilizzato direttamente dai nodi Pruna in ComfyUI configurando il path appropriato.
-
-### Dockerfile Personalizzato
-
-Modifica il Dockerfile per cambiare i default:
-
-```dockerfile
-# Cambia modello e modalità di default
-ENV MODEL_DIFF=runwayml/stable-diffusion-v1-5
-ENV DOWNLOAD_DIR=/app/models  
-ENV PRUNA_COMPILED_DIR=/app/compiled_models
-```
-
-## 💡 Suggerimenti
-
-### Scegliere la Modalità Giusta
-
-- **Fast**: Per sviluppo, test rapidi, prototipazione
-- **Moderate**: Per la maggior parte dei casi di produzione
-- **Normal**: Per applicazioni critiche dove la qualità è prioritaria
-
-### Performance Tips
-
-- Usa `--skip-download` se hai già il modello scaricato
-- Usa `--skip-compile` per solo scaricare il modello  
-- Sincronizza le versioni di PyTorch/Pruna tra build e runtime
-- Considera multi-stage builds per container di produzione più piccoli
-- La modalità Fast può accelerare la compilazione del 70-80%
-- La modalità Normal offre fino al 30% di miglioramento nelle prestazioni di inferenza
-
-## 🚨 Requisiti
-
-- CUDA 12.1+ per GPU support (richiesto per stable_fast e HQQ)
+Minimum:
 - Python 3.8+
-- Spazio disco sufficiente per modelli (3-7GB per modello)
-- Token Hugging Face per modelli privati (opzionale)
-- 8GB+ RAM per modalità Normal con modelli grandi
+- 4 GB RAM
+- 10 GB disk
 
-## 📊 Confronto Modalità e Performance
+Recommended:
+- CUDA 12.1+ for full GPU support
+- 16 GB+ RAM for large models
+- Apple Silicon M1/M2/M3 supported with device-aware fallbacks
 
-### Tabella Comparativa Completa
+## 🆕 What's new in this release
 
-| Modalità | Tempo Compilazione | Qualità Output | Velocità Inferenza | Uso Consigliato | Compatibilità |
-|----------|-------------------|----------------|--------------------|-----------------|--------------| 
-| Fast     | ⭐⭐⭐⭐⭐ (5-10m)      | ⭐⭐⭐⭐ (90-95%)    | ⭐⭐⭐⭐ (2-3x)        | Sviluppo, Test  | ✅ Tutti i dispositivi |
-| Moderate | ⭐⭐⭐ (15-25m)        | ⭐⭐⭐⭐⭐ (98-99%)  | ⭐⭐⭐⭐⭐ (3-5x)      | Produzione      | ✅ Tutti i dispositivi |
-| Normal   | ⭐ (30-60m)          | ⭐⭐⭐⭐⭐ (99%+)    | ⭐⭐⭐⭐⭐ (4-6x)      | Critico         | ⚠️ Limitato su MPS |
+### Fixed
+- "Model is not compatible with fora" for Stable Diffusion 1.5
+- Compatibility problems on Apple Silicon (MPS)
+- Automatic handling for cases where Pruna would compile for CPU despite available CUDA
+- Memory handling improvements to avoid common OOMs
 
-### Performance per Dispositivo
+### New features
+- `PrunaModelConfigurator` smart class
+- Auto-detection for several model families
+- Device-specific configuration recommendations
+- Tests and diagnostic scripts
 
-#### CUDA (GPU NVIDIA)
+## GitHub: Quick Usage, Features, Examples & Credits (English)
+
+### What this repository provides
+
+This repository is a Docker-ready toolkit and a lightweight Flask API to download, compile and serve diffusion models (Stable Diffusion, FLUX and others) optimized with Pruna for faster inference. It includes an intelligent configurator that manages device compatibility (CUDA, CPU, Apple MPS), automatic fallbacks, and memory-aware compilation modes.
+
+Key features:
+- Download models from Hugging Face into `./models/`.
+- Compile models with Pruna and store optimized artifacts in `./compiled_models/`.
+- Expose a small HTTP API to download, compile, generate images and delete models.
+- Auto-detection and recommended Pruna configuration per model and device.
+- Multiple compilation modes: `fast`, `moderate`, `normal` to trade off speed vs quality.
+- Device-aware fallbacks for MPS/CPU to avoid incompatible Pruna options.
+- Diagnostic and memory-management helper scripts.
+
+API Endpoints
+- `POST /download` — download a model to `models/`.
+- `POST /compile` — compile an existing downloaded model into `compiled_models/`.
+- `POST /generate` — generate images with a compiled model.
+- `POST /delete-model` — remove downloaded/compiled model folders.
+- `GET /ping` — basic liveness check.
+- `GET /health` — health and configuration report.
+
+Quick CLI examples
+
+1) Download a model (CLI):
+
 ```bash
-# Configurazione ottimale - tutte le funzionalità disponibili
---compilation-mode normal --device cuda
-
-Risultati tipici:
-- SD 1.5: 4-6x speedup, qualità 99%+
-- SDXL: 3-5x speedup, qualità 99%+ 
-- FLUX: 2-4x speedup, qualità 98%+
+python3 download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
 ```
 
-#### Apple Silicon (MPS)
+2) Download + compile (fast mode):
+
 ```bash
-# Configurazione sicura - ottimizzazioni minimali
---compilation-mode fast --device mps
-
-Risultati tipici:
-- SD 1.5: 1.5-2x speedup, qualità 95%
-- SDXL: 1.3-1.8x speedup, qualità 95%
-- Configurazione ultra-safe evita tutti gli errori
-```
-
-#### CPU (Tutti i processori)
-```bash
-# Configurazione bilanciata
---compilation-mode moderate --device cpu
-
-Risultati tipici:
-- SD 1.5: 1.5-2.5x speedup, qualità 98%
-- Tempi più lunghi ma maggiore compatibilità
-```
-
-### Risoluzione Automatica Errori
-
-| Errore Precedente | Modello Affetto | Soluzione Automatica |
-|-------------------|-----------------|---------------------|
-| "Model is not compatible with fora" | SD 1.5, SD 1.4 | ✅ Usa DeepCache invece di FORA |
-| "deepcache is not compatible with device mps" | Tutti su MPS | ✅ Disabilita DeepCache su MPS |
-| "No module named 'IPython'" | HQQ su MPS | ✅ Disabilita HQQ su MPS |
-| "Could not import necessary packages" | Varie ottimizz. | ✅ Fallback configurazione minimale |
-
-## 💡 Suggerimenti e Best Practices
-
-### Scegliere la Modalità Giusta
-
-**Per Sviluppo:**
-```bash
-# Rapido per iterazioni veloci
 python3 download_model_and_compile.py \
   --model-id runwayml/stable-diffusion-v1-5 \
   --compilation-mode fast
 ```
 
-**Per Produzione:**
+3) Force CUDA compilation (if you have a GPU):
+
 ```bash
-# Bilanciato per la maggior parte dei casi
-python3 download_model_and_compile.py \
-  --model-id runwayml/stable-diffusion-v1-5 \
-  --compilation-mode moderate
+python3 force_cuda_compile.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
 ```
 
-**Per Applicazioni Critiche:**
+4) Run the Flask API locally and test compile endpoint (example):
+
 ```bash
-# Solo su CUDA per prestazioni massime
-python3 download_model_and_compile.py \
-  --model-id stabilityai/stable-diffusion-xl-base-1.0 \
-  --compilation-mode normal \
-  --device cuda
+# start server in background
+python3 server.py --host 127.0.0.1 --port 8000 --debug &
+
+# request compilation (replace host/port if needed)
+curl -X POST http://127.0.0.1:8000/compile \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "compilation_mode": "fast"}'
+
+# stop server
+pkill -f server.py
 ```
 
-### Performance Tips
+5) Generate images via API:
 
-- **Usa `--skip-download`** se hai già il modello scaricato
-- **Usa `--skip-compile`** per solo scaricare il modello  
-- **Fast mode** può accelerare la compilazione del 70-80%
-- **Normal mode** offre fino al 30% di miglioramento nelle prestazioni di inferenza
-- **Su MPS** usa sempre modalità Fast o Moderate per evitare errori
-- **Sincronizza PyTorch/Pruna** tra build e runtime
-- **Considera multi-stage builds** per container di produzione
-
-### Troubleshooting
-
-#### Se la compilazione fallisce:
 ```bash
-# 1. Prova modalità più leggera
---compilation-mode fast
-
-# 2. Forza CPU se GPU ha problemi
---force-cpu
-
-# 3. Prova device specifico
---device cpu
-
-# 4. Controlla compatibilità
-python3 test_pruna_config.py
+curl -X POST http://127.0.0.1:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "prompt": "A scenic landscape at sunset"}'
 ```
 
-#### Per Apple Silicon (M1/M2/M3):
-```bash
-# Sempre usa configurazione sicura
---device mps --compilation-mode fast
+Environment variables and Docker
+- `MODEL_DIFF` — default model id used by CLI tools (override per-run or via Docker build arg).
+- `DOWNLOAD_DIR` — path where models are downloaded (default `./models`).
+- `PRUNA_COMPILED_DIR` — path where compiled models are written (default `./compiled_models`).
+
+You can pass these as Docker build args or environment variables when running the container.
+
+Practical tips
+- Use `--skip-download` or `--skip-compile` when you want only one step.
+- Prefer `fast` for quick iterations and `moderate/normal` for production-quality results.
+- On Apple Silicon prefer `--device mps` and `fast` to avoid Pruna incompatibilities.
+- If you see `CUDA out of memory` during compilation, use `restart_clean_compile.sh` or `compile_with_memory_mgmt.py`.
+
+Credits
+- Project maintainer: repository owner
+- Major libraries and tools used:
+  - Pruna (smash)
+  - Hugging Face `diffusers` and `huggingface_hub`
+  - PyTorch
+  - Flask for the lightweight API
+
+If you want a compact GitHub landing section (badges, short TL;DR, GIF) I can prepare a shorter front-page variant.
+
 ```
-
-## 🎯 Integrazione ComfyUI con Configurazione Intelligente
-
-### Setup Automatico per ComfyUI
-
-Il sistema è ora **completamente compatibile** con ComfyUI grazie alla configurazione intelligente:
-
-```dockerfile
-# Nel tuo Dockerfile ComfyUI
-COPY lib/ /app/lib/
-COPY download_model_and_compile.py /app/
-COPY test_pruna_config.py /app/
-
-# Compila modelli con configurazione automatica
-RUN python3 /app/download_model_and_compile.py \
-    --model-id runwayml/stable-diffusion-v1-5 \
-    --compilation-mode moderate \
-    --compiled-dir /app/ComfyUI/models/checkpoints/
-```
-
-### Vantaggi per ComfyUI
-
-1. **Zero Errori**: Nessun errore di incompatibilità Pruna
-2. **Auto-Configurazione**: Rileva automaticamente il tipo di modello  
-3. **Multi-Device**: Funziona su CUDA, CPU e Apple Silicon
-4. **Ready-to-Go**: Modelli compilati immediatamente utilizzabili
-
-### Path Configurazione ComfyUI
-
-```python
-# In ComfyUI, configura il path:
-compiled_models_path = "/app/compiled_models/"
-
-# I modelli saranno disponibili come:
-# - runwayml--stable-diffusion-v1-5
-# - stabilityai--stable-diffusion-xl-base-1.0
-# - black-forest-labs--FLUX.1-dev
-```
-
-## 🚨 Requisiti di Sistema
-
-### Minimi
-- **Python 3.8+**
-- **4GB RAM** (modelli piccoli)
-- **10GB spazio disco** per modello + compilazione
-
-### Raccomandati per Prestazioni Ottimali
-- **CUDA 12.1+** per GPU NVIDIA (funzionalità complete)
-- **16GB+ RAM** per modelli grandi (FLUX, SDXL)
-- **Apple Silicon M1/M2/M3** (configurazione automatica sicura)
-- **Token Hugging Face** per modelli privati
-
-### Dipendenze Automatiche
-Il configuratore gestisce automaticamente:
-- ✅ Pruna core packages
-- ✅ Diffusers compatibili
-- ✅ Torch versione corretta
-- ✅ Dipendenze specifiche per dispositivo
-
-## 🔄 Workflow Completo
-
-### 1. Setup Iniziale
-```bash
-# Clona il repository
-git clone <your-repo>
-cd docker-pruna
-
-# Installa dipendenze
-pip install -r requirements.txt
-```
-
-### 2. Test Configurazione
-```bash
-# Verifica compatibilità per i tuoi modelli
-python3 test_pruna_config.py
-
-# Output mostra configurazioni ottimali per ogni modello/dispositivo
-```
-
-### 3. Compilazione Modelli
-```bash
-# Compila i tuoi modelli preferiti
-python3 download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5 --compilation-mode moderate
-python3 download_model_and_compile.py --model-id stabilityai/stable-diffusion-xl-base-1.0 --compilation-mode normal
-```
-
-### 4. Deploy Produzione
-```bash
-# Build container con modelli pre-compilati
-docker build -t your-app .
-
-# Deploy con configurazione ottimale
-docker run -p 8000:8000 your-app
-```
-
-## 🆕 Novità Versione Attuale
-
-### ✅ Risolto Completamente
-- **Errore "Model is not compatible with fora"** per Stable Diffusion 1.5
-- **Problemi di compatibilità** su Apple Silicon (MPS)
-- **Configurazioni manuali** complesse per ogni modello
-- **Errori dipendenze** su dispositivi diversi
-- **🆕 "Compiling for CPU" con CUDA disponibile** - Auto-detection migliorata
-- **🆕 "CUDA out of memory"** durante compilazione - Gestione memoria intelligente
-- **🆕 Processi GPU zombie** - Pulizia automatica memoria
-
-### 🚀 Nuove Funzionalità
-- **Classe PrunaModelConfigurator** per gestione automatica
-- **Riconoscimento automatico** di 6+ tipi di modelli
-- **Configurazioni device-specific** ottimizzate
-- **Fallback automatici** per combinazioni non supportate
-- **Test suite completa** per validazione configurazioni
-- **🆕 Script diagnostica CUDA/Pruna** - `test_pruna_cuda.py`
-- **🆕 Compilazione forzata CUDA** - `force_cuda_compile.py`
-- **🆕 Gestione memoria GPU intelligente** - `compile_with_memory_mgmt.py`
-- **🆕 Restart automatico** con pulizia memoria - `restart_clean_compile.sh`
-- **🆕 Diagnostica setup completa** - `check_pruna_setup.py`
-
-### 🧠 Gestione Memoria GPU Avanzata
-
-#### Nuove Funzionalità di Memoria:
-- **Pulizia automatica** memoria GPU prima/dopo compilazione
-- **Detection memoria disponibile** con raccomandazioni
-- **Configurazioni ottimizzate** per memoria limitata
-- **Restart intelligente** processi per liberare memoria
-- **Monitoring real-time** utilizzo GPU durante compilazione
-
-#### Script Specializzati:
-```bash
-# Gestione memoria ottimizzata
-python3 compile_with_memory_mgmt.py --model-id MODEL_ID --mode fast
-# ↳ Include: pulizia automatica, configurazioni memory-aware, fallback sicuri
-
-# Restart con memoria pulita  
-./restart_clean_compile.sh MODEL_ID fast
-# ↳ Include: kill processi esistenti, reset GPU, variabili ottimali
-
-# Diagnostica memoria e setup
-python3 test_pruna_cuda.py
-# ↳ Include: verifica CUDA, test allocazione, raccomandazioni
-```
-
 ### 🔮 Roadmap Futura
 - Support per nuovi modelli (SD 4.0, Cascade, etc.)
 - Ottimizzazioni specifiche per architetture GPU
