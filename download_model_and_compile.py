@@ -1,3 +1,5 @@
+import os
+
 # Funzione pubblica per API: compila un modello dato un model_id
 def compile_model(model_id, download_dir, compiled_dir, torch_dtype='float16', compilation_mode='normal', force_cpu=False, device_override=None):
     """
@@ -383,7 +385,6 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
         # Force device setup if CUDA is available but not being used
         if actual_device == 'cuda' and not force_cpu:
             print("🎯 Forcing CUDA device setup per Pruna...")
-            import os
             os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Ensure GPU 0 is visible
             if hasattr(torch, 'cuda') and torch.cuda.is_available():
                 torch.cuda.set_device(0)
