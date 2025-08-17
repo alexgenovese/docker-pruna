@@ -534,3 +534,18 @@ Recommended:
 
 - Project maintainer: repository owner
 - Libraries and tools: Pruna (smash), Hugging Face `diffusers`, `huggingface_hub`, PyTorch, Flask
+
+## 🤝 Contributing
+
+Contributions are welcome! Please fork, branch, and submit a pull request:
+
+1. Fork the repo
+2. Create a feature branch
+3. Commit your changes
+4. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is Apache 2.0 licensed. See [LICENSE](LICENSE) for details.
