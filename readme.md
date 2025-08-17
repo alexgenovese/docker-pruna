@@ -1,29 +1,3 @@
-### /delete-model
-Elimina la cartella del modello scaricato o compilato (o entrambe) dato un `model_id`.
-
-**POST /delete-model**
-
-**Body JSON:**
-```json
-{
-  "model_id": "runwayml/stable-diffusion-v1-5",
-  "type": "all" // Opzionale: "downloaded", "compiled" o "all" (default)
-}
-```
-
-**Esempio CURL:**
-```bash
-curl -X POST http://localhost:8000/delete-model \
-  -H "Content-Type: application/json" \
-  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "type": "all"}'
-```
-
-**Risposta:**
-- `status`: "success" se tutte le cartelle sono state eliminate, "partial" se solo alcune, "not_found" se nessuna trovata, "error" in caso di errore interno.
-- `deleted`: lista delle cartelle eliminate.
-- `errors`: eventuali errori riscontrati.
-
----
 # Docker Pruna - Download e Compilazione Modelli Diffusers
 
 Questo progetto fornisce un ambiente Docker parametrizzabile per scaricare e compilare modelli diffusion con l'ottimizzazione Pruna per inferenze più veloci.
@@ -410,7 +384,32 @@ Restituisce lo stato di salute e la configurazione del server.
 ```bash
 curl http://localhost:8000/health
 ```
+### /delete-model
+Elimina la cartella del modello scaricato o compilato (o entrambe) dato un `model_id`.
 
+**POST /delete-model**
+
+**Body JSON:**
+```json
+{
+  "model_id": "runwayml/stable-diffusion-v1-5",
+  "type": "all" // Opzionale: "downloaded", "compiled" o "all" (default)
+}
+```
+
+**Esempio CURL:**
+```bash
+curl -X POST http://localhost:8000/delete-model \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "type": "all"}'
+```
+
+**Risposta:**
+- `status`: "success" se tutte le cartelle sono state eliminate, "partial" se solo alcune, "not_found" se nessuna trovata, "error" in caso di errore interno.
+- `deleted`: lista delle cartelle eliminate.
+- `errors`: eventuali errori riscontrati.
+
+---
 ---
 
 **Nota:**
