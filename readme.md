@@ -150,21 +150,6 @@ Run container:
 docker run --rm -e MODEL_DIFF=runwayml/stable-diffusion-v1-5 docker-pruna
 ```
 
-## Troubleshooting
-- **Model not compatible with FORA**: Falls back to DeepCache
-- **DeepCache on MPS**: Disabled automatically
-- **CUDA OOM**: Use `restart_clean_compile.sh` or lower batch size
-
-## System Requirements
-- Python 3.8+
-- 4 GB RAM (16 GB+ recommended)
-- 10 GB disk per model
-- (Optional) CUDA 12.1+ for GPU workflows
-
-## Credits
-- Maintainer: alexgenovese
-- Tools: Pruna (smash), Hugging Face `diffusers`, `huggingface_hub`, PyTorch, Flask
-
 ## Key features
 
 - Download models from Hugging Face into `./models/`.
@@ -174,7 +159,7 @@ docker run --rm -e MODEL_DIFF=runwayml/stable-diffusion-v1-5 docker-pruna
 - Compilation modes: `fast`, `moderate`, `normal` (speed vs quality trade-offs).
 - Helpers for CUDA/MPS/CPU diagnostics and memory-aware compilation.
 
-## 📋 Environment Variables
+## Environment Variables
 
 - `MODEL_DIFF`: model ID on Hugging Face (default: `CompVis/stable-diffusion-v1-4`)
 - `DOWNLOAD_DIR`: Directory to download the models (default: `./models`)
@@ -195,12 +180,6 @@ optional arguments:
 
 
 ## Quick start
-
-Prerequisites:
-
-- Python 3.8+
-- (Optional) CUDA 12.1+ for GPU-based compilation/inference
-- Enough disk space (3–7 GB per model)
 
 Clone and install dependencies:
 
@@ -367,23 +346,24 @@ compile_with_memory_mgmt.py   # Memory-aware compilation
 restart_clean_compile.sh      # Restart + cleanup helper
 ```
 
+# Single Files Explanation
 
-# 1. Force CUDA explicitly
+## 1. Force CUDA explicitly
 ```
 python3 force_cuda_compile.py --model-id MODEL_ID --mode fast
 ```
 
-# 2. Use memory-aware compilation
+## 2. Use memory-aware compilation
 ```
 python3 compile_with_memory_mgmt.py --model-id MODEL_ID --mode fast
 ```
 
-# 3. Restart with clean memory
+## 3. Restart with clean memory
 ```
 ./restart_clean_compile.sh MODEL_ID fast
 ```
 
-# 4. Set recommended env vars
+## 4. Set recommended env vars
 ```
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True,max_split_size_mb:512"
 export CUDA_VISIBLE_DEVICES=0
@@ -407,7 +387,7 @@ compile_with_memory_mgmt.py  # Memory-aware compilation
 restart_clean_compile.sh     # Restart and clean memory helper
 ```
 
-# 🔧 Docker usage
+# Docker usage
 
 ### Build examples
 ```bash
