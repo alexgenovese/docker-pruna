@@ -14,6 +14,12 @@ This repository is a Docker-ready toolkit and a lightweight Flask API to downloa
 
 **It includes an intelligent configurator that manages device compatibility (CUDA, CPU, Apple MPS), automatic fallbacks, and memory-aware compilation modes.**
 
+## TODO
+
+- [ ] Push to Hub (compiled model)
+- [ ] Qwen
+- [ ] WAN 2.2
+
 ## Table of Contents
 1. [Key Features](#key-features)
 2. [Prerequisites](#prerequisites)
@@ -523,8 +529,6 @@ Contributions are welcome! Please fork, branch, and submit a pull request:
 2. Create a feature branch
 3. Commit your changes
 4. Open a Pull Request
-
----
 
 ## 📄 License
 
