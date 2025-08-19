@@ -1,9 +1,9 @@
 import os
 
-# Funzione pubblica per API: compila un modello dato un model_id
+# Public API function: compile a model given a model_id
 def compile_model(model_id, download_dir, compiled_dir, torch_dtype='float16', compilation_mode='normal', force_cpu=False, device_override=None):
     """
-    Compila un modello già scaricato dato un model_id e salva nella cartella compiled_dir.
+    Compile a model already downloaded given a model_id and save it to compiled_dir.
     """
     import torch as _torch
     model_name = model_id.replace('/', '--')
@@ -21,8 +21,8 @@ def compile_model(model_id, download_dir, compiled_dir, torch_dtype='float16', c
     )
 #!/usr/bin/env python3
 """
-Script principale per il download e la compilazione di modelli diffusers con Pruna.
-Parametrizzabile tramite variabili d'ambiente o argomenti CLI.
+Main script to download and compile diffusers models with Pruna.
+Configurable via environment variables or CLI arguments.
 """
 import os
 import sys
@@ -146,25 +146,24 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
     Returns:
         str: Path to the downloaded model directory
     """
-    print(f"🔄 Scaricando modello '{model_id}' da Hugging Face...")
+    print(f"🔄 Downloading model '{model_id}' from Hugging Face...")
     if not os.path.exists(download_dir):
         os.makedirs(download_dir, exist_ok=True)
-
-    print(f"📁 Directory di destinazione: {download_dir}")
+    print(f"📁 Destination directory: {download_dir}")
     
     # Detect model type
     model_type = detect_model_type(model_id)
-    print(f"🔍 Tipo di modello rilevato: {model_type}")
+    print(f"🔍 Detected model type: {model_type}")
     
     # Authenticate with Hugging Face if token is provided
     if hf_token:
-        print("🔐 Autenticazione con Hugging Face...")
+        print("🔐 Authenticating with Hugging Face...")
         try:
             login(token=hf_token)
-            print("✅ Autenticazione riuscita")
+            print("✅ Authentication succeeded")
         except Exception as e:
-            print(f"⚠️  Errore durante l'autenticazione: {e}")
-            print("ℹ️  Continuando senza autenticazione...")
+            print(f"⚠️  Error during authentication: {e}")
+            print("ℹ️  Continuing without authentication...")
     
     # Create download directory
     os.makedirs(download_dir, exist_ok=True)
@@ -175,7 +174,7 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
     
     # Check if model already exists
     if os.path.exists(model_path) and os.listdir(model_path):
-        print(f"✅ Modello già presente in {model_path}")
+        print(f"✅ Model already present in {model_path}")
         return model_path
     
     try:
@@ -184,16 +183,16 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
         ignore_patterns = None
         if model_type == 'flux':
             ignore_patterns = ["*.safetensors", "*.bin", "*.gguf"]
-            print("🚫 Escludendo file safetensors/bin/gguf dalla root del repository per modelli FLUX")
+            print("🚫 Excluding safetensors/bin/gguf files from repo root for FLUX models")
         elif any(keyword in model_id.lower() for keyword in ["large", "xl"]):
             ignore_patterns = ["*.safetensors", "*.bin"]
-            print("🚫 Escludendo file safetensors/bin dalla root del repository per modelli di grandi dimensioni")
+            print("🚫 Excluding safetensors/bin files from repo root for large models")
         
         # Try to load based on model type
         pipeline = None
         
         if model_type == 'flux' and FLUX_AVAILABLE and FluxPipeline is not None:
-            print("🌊 Tentativo di download con FluxPipeline...")
+            print("🌊 Attempting download with FluxPipeline...")
             try:
                 pipeline = FluxPipeline.from_pretrained(
                     model_id,
@@ -204,11 +203,11 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
                     ignore_patterns=ignore_patterns
                 )
             except Exception as flux_e:
-                print(f"⚠️  FluxPipeline fallito: {flux_e}")
+                print(f"⚠️  FluxPipeline failed: {flux_e}")
                 pipeline = None
         
         if pipeline is None and model_type == 'stable-diffusion':
-            print("🎨 Tentativo di download con StableDiffusionPipeline...")
+            print("🎨 Attempting download with StableDiffusionPipeline...")
             try:
                 pipeline = StableDiffusionPipeline.from_pretrained(
                     model_id,
@@ -220,11 +219,11 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
                     ignore_patterns=ignore_patterns
                 )
             except Exception as sd_e:
-                print(f"⚠️  StableDiffusionPipeline fallito: {sd_e}")
+                print(f"⚠️  StableDiffusionPipeline failed: {sd_e}")
                 pipeline = None
         
         if pipeline is None:
-            print("🔄 Fallback: tentativo con DiffusionPipeline generico...")
+            print("🔄 Fallback: trying generic DiffusionPipeline...")
             pipeline = DiffusionPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch_dtype,
@@ -235,13 +234,13 @@ def download_model(model_id, download_dir, torch_dtype=torch.float16, hf_token=N
             )
             
     except Exception as e:
-        raise RuntimeError(f"❌ Impossibile scaricare il modello {model_id}. Errore: {e}")
+        raise RuntimeError(f"❌ Unable to download model {model_id}. Error: {e}")
     
     # Save model locally
     os.makedirs(model_path, exist_ok=True)
     pipeline.save_pretrained(model_path)
     
-    print(f"✅ Modello scaricato e salvato in {model_path}")
+    print(f"✅ Model downloaded and saved in {model_path}")
     return model_path
 
 
@@ -261,9 +260,9 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     Returns:
         str: Path to the compiled model directory
     """
-    print(f"🔧 Compilazione modello con Pruna usando configurazione ottimizzata...")
-    print(f"📂 Modello sorgente: {model_path}")
-    print(f"📁 Directory compilazione: {compiled_dir}")
+    print(f"🔧 Compiling model with Pruna using optimized configuration...")
+    print(f"📂 Source model: {model_path}")
+    print(f"📁 Compiled directory: {compiled_dir}")
     
     # Detect model type from path or use generic detection
     model_id_from_path = os.path.basename(model_path).replace('--', '/')
@@ -273,7 +272,7 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     
     # Detect model type
     model_type = configurator.detect_model_type(model_id_from_path)
-    print(f"🔍 Tipo di modello rilevato: {model_type}")
+    print(f"🔍 Detected model type: {model_type}")
     
     # Detect device
     device_name = device_override if device_override else 'auto'
@@ -285,26 +284,26 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     actual_device = model_info['device']
     compatibility = model_info['compatibility']
     
-    print(f"💻 Dispositivo selezionato: {actual_device}")
-    print(f"🔧 Modalità compilazione: {compilation_mode}")
+    print(f"💻 Selected device: {actual_device}")
+    print(f"🔧 Compilation mode: {compilation_mode}")
     
     # Enhanced device diagnostics
-    print(f"\n🔍 Diagnostica dispositivo:")
+    print(f"\n🔍 Device diagnostics:")
     try:
         import torch as _torch_diag
-        print(f"   - PyTorch CUDA disponibile: {'✅' if _torch_diag.cuda.is_available() else '❌'}")
+        print(f"   - PyTorch CUDA available: {'✅' if _torch_diag.cuda.is_available() else '❌'}")
         if _torch_diag.cuda.is_available():
-            print(f"   - Numero GPU: {_torch_diag.cuda.device_count()}")
-            print(f"   - GPU attuale: {_torch_diag.cuda.current_device()}")
-            print(f"   - Nome GPU: {_torch_diag.cuda.get_device_name(0)}")
-            print(f"   - Memoria GPU totale: {_torch_diag.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            print(f"   - GPU count: {_torch_diag.cuda.device_count()}")
+            print(f"   - Current GPU: {_torch_diag.cuda.current_device()}")
+            print(f"   - GPU name: {_torch_diag.cuda.get_device_name(0)}")
+            print(f"   - Total GPU memory: {_torch_diag.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
         print(f"   - Force CPU: {force_cpu}")
         print(f"   - Device override: {device_override}")
     except Exception as e:
-        print(f"   - Errore diagnostica: {e}")
+        print(f"   - Diagnostics error: {e}")
     
     # Print compatibility info
-    print(f"\n✅ Compatibilità Pruna:")
+    print(f"\n✅ Pruna compatibility:")
     print(f"   - FORA Cacher: {'✅' if compatibility['fora_cacher'] else '❌'}")
     print(f"   - DeepCache: {'✅' if compatibility['deepcache'] else '❌'}")
     print(f"   - Factorizer: {'✅' if compatibility['factorizer'] else '❌'}")
@@ -320,11 +319,11 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
         force_cpu
     )
     
-    print(f"📊 Configurazione Pruna ottimizzata:")
+    print(f"📊 Optimized Pruna configuration:")
     # SmashConfig doesn't support iteration, so we'll show a summary
-    print(f"   - Dispositivo: {actual_device}")
-    print(f"   - Modalità: {compilation_mode}")
-    print(f"   - Tipo modello: {model_type}")
+    print(f"   - Device: {actual_device}")
+    print(f"   - Mode: {compilation_mode}")
+    print(f"   - Model type: {model_type}")
     
     # Determine compiled model save path
     model_name = os.path.basename(model_path)
@@ -337,7 +336,7 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
     if os.path.exists(compiled_path) and os.listdir(compiled_path):
         config_files = ['model_index.json', 'smash_config.json']
         if any(os.path.exists(os.path.join(compiled_path, f)) for f in config_files):
-            print(f"✅ Modello compilato già presente in {compiled_path}")
+            print(f"✅ Compiled model already present in {compiled_path}")
             return compiled_path
     
     # Load the model for compilation based on detected type
@@ -346,18 +345,18 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
         try:
             # Try loading based on model type
             if model_type == 'flux' and FLUX_AVAILABLE and FluxPipeline is not None:
-                print("🌊 Tentativo di caricamento con FluxPipeline...")
+                print("🌊 Attempting load with FluxPipeline...")
                 try:
                     pipeline = FluxPipeline.from_pretrained(
                         model_path,
                         torch_dtype=torch_dtype
                     )
                 except Exception as flux_e:
-                    print(f"⚠️  FluxPipeline fallito: {flux_e}")
+                    print(f"⚠️  FluxPipeline failed: {flux_e}")
                     pipeline = None
             
             if pipeline is None and model_type.startswith('stable-diffusion'):
-                print("🎨 Tentativo di caricamento con StableDiffusionPipeline...")
+                print("🎨 Attempting load with StableDiffusionPipeline...")
                 try:
                     pipeline = StableDiffusionPipeline.from_pretrained(
                         model_path,
@@ -365,48 +364,48 @@ def compile_model_with_pruna(model_path, compiled_dir, torch_dtype=torch.float16
                         safety_checker=None
                     )
                 except Exception as sd_e:
-                    print(f"⚠️  StableDiffusionPipeline fallito: {sd_e}")
+                    print(f"⚠️  StableDiffusionPipeline failed: {sd_e}")
                     pipeline = None
             
             if pipeline is None:
-                print("🔄 Fallback: caricamento con DiffusionPipeline generico...")
+                print("🔄 Fallback: loading with generic DiffusionPipeline...")
                 pipeline = DiffusionPipeline.from_pretrained(
                     model_path,
                     torch_dtype=torch_dtype
                 )
         except Exception as e:
-            raise RuntimeError(f"❌ Errore nel caricamento del modello: {e}")
+            raise RuntimeError(f"❌ Error loading model: {e}")
     else:
-        raise RuntimeError(f"❌ Directory modello non trovata: {model_path}")
+        raise RuntimeError(f"❌ Model directory not found: {model_path}")
     
     try:
-        print("🚀 Avvio compilazione Pruna con configurazione ottimizzata...")
+        print("🚀 Starting Pruna compilation with optimized configuration...")
         
         # Force device setup if CUDA is available but not being used
         if actual_device == 'cuda' and not force_cpu:
-            print("🎯 Forcing CUDA device setup per Pruna...")
+            print("🎯 Forcing CUDA device setup for Pruna...")
             os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Ensure GPU 0 is visible
             if hasattr(torch, 'cuda') and torch.cuda.is_available():
                 torch.cuda.set_device(0)
-                print(f"   - CUDA device impostato: {torch.cuda.current_device()}")
+                print(f"   - CUDA device set: {torch.cuda.current_device()}")
         
         compiled = smash(pipeline, smash_config=smash_config)
         
         # Save compiled model
         compiled.save_pretrained(compiled_path)
         
-        print(f"✅ Modello ottimizzato salvato in {compiled_path}")
+        print(f"✅ Optimized model saved in {compiled_path}")
         return compiled_path
         
     except Exception as e:
-        print(f"⚠️  Errore durante la compilazione Pruna: {e}")
-        print("🔄 Salvataggio del modello base senza ottimizzazioni Pruna...")
+        print(f"⚠️  Error during Pruna compilation: {e}")
+        print("🔄 Saving base model without Pruna optimizations...")
         
         # Fallback: save the unoptimized model in compiled directory
         pipeline.save_pretrained(compiled_path)
         
-        print(f"⚠️  Modello salvato senza ottimizzazioni in {compiled_path}")
-        print("ℹ️  Il modello funzionerà ma senza le ottimizzazioni Pruna")
+        print(f"⚠️  Model saved without optimizations in {compiled_path}")
+        print("ℹ️  The model will work but without Pruna optimizations")
         return compiled_path
 
 
@@ -422,11 +421,11 @@ def main():
     torch_dtype = torch.float16 if args.torch_dtype == 'float16' else torch.float32
     
     print("=" * 50)
-    print(f"📋 Parametri:")
-    print(f"   - Modello: {args.model_id}")
+    print(f"📋 Parameters:")
+    print(f"   - Model: {args.model_id}")
     print(f"   - Download Dir: {effective_download_dir}")
     print(f"   - Compiled Dir: {effective_compiled_dir}")
-    print(f"   - HF Token: {'***IMPOSTATO***' if args.hf_token else 'NON IMPOSTATO'}")
+    print(f"   - HF Token: {'***SET***' if args.hf_token else 'NOT SET'}")
     print(f"   - Torch dtype: {args.torch_dtype}")
     print(f"   - Compilation Mode: {args.compilation_mode}")
     print(f"   - Force CPU: {args.force_cpu}")
@@ -440,9 +439,9 @@ def main():
         args.model_id, effective_download_dir, effective_compiled_dir
     )
     
-    print(f"\n� Verifica esistenza modello:")
-    print(f"   - Modello base: {'✅ PRESENTE' if model_exists else '❌ NON PRESENTE'} in {model_path}")
-    print(f"   - Modello compilato: {'✅ PRESENTE' if compiled_exists else '❌ NON PRESENTE'} in {compiled_path}")
+    print(f"\n🔍 Verify model existence:")
+    print(f"   - Base model: {'✅ PRESENT' if model_exists else '❌ NOT PRESENT'} in {model_path}")
+    print(f"   - Compiled model: {'✅ PRESENT' if compiled_exists else '❌ NOT PRESENT'} in {compiled_path}")
     
     # Auto-determine what needs to be done
     need_download = not model_exists and not args.skip_download
@@ -456,16 +455,16 @@ def main():
         print(f"✅ Modello base già disponibile e compilazione non necessaria")
         need_download = False
     
-    print(f"\n📋 Piano di esecuzione:")
-    print(f"   - Download: {'✅ NECESSARIO' if need_download else '⏭️ SALTA'}")
-    print(f"   - Compilazione: {'✅ NECESSARIO' if need_compile else '⏭️ SALTA'}")
+    print(f"\n📋 Execution plan:")
+    print(f"   - Download: {'✅ REQUIRED' if need_download else '⏭️ SKIP'}")
+    print(f"   - Compilation: {'✅ REQUIRED' if need_compile else '⏭️ SKIP'}")
     
     # Check if both operations are skipped
     if not need_download and not need_compile:
-        print("\n🎉 Nessuna operazione necessaria - tutti i modelli sono già disponibili!")
-        print(f"📁 Modello base: {model_path}")
-        print(f"🚀 Modello compilato: {compiled_path}")
-        print(f"\n💡 Per usare il modello compilato, imposta:")
+        print("\n🎉 No actions required - all models are already available!")
+        print(f"📁 Base model: {model_path}")
+        print(f"🚀 Compiled model: {compiled_path}")
+        print(f"\n💡 To use the compiled model, set:")
         print(f"   export PRUNA_COMPILED_DIR='{compiled_path}'")
         return
     
@@ -475,18 +474,18 @@ def main():
     try:
         # Step 1: Download model (if needed)
         if need_download:
-            print(f"\n🔄 Avvio download del modello...")
+            print(f"\n🔄 Starting model download...")
             final_model_path = download_model(args.model_id, effective_download_dir, torch_dtype, args.hf_token)
         elif model_exists:
-            print(f"\n✅ Uso modello esistente: {model_path}")
+            print(f"\n✅ Using existing model: {model_path}")
             final_model_path = model_path
         
         # Step 2: Compile model with Pruna (if needed)
         if need_compile:
             if not final_model_path:
-                raise RuntimeError("❌ Impossibile compilare: modello base non disponibile")
+                raise RuntimeError("❌ Cannot compile: base model not available")
             
-            print(f"\n🔧 Avvio compilazione del modello...")
+            print(f"\n🔧 Starting model compilation...")
             final_compiled_path = compile_model_with_pruna(
                 final_model_path, 
                 effective_compiled_dir, 
@@ -496,32 +495,32 @@ def main():
                 args.device
             )
         elif compiled_exists:
-            print(f"\n✅ Uso modello compilato esistente: {compiled_path}")
+            print(f"\n✅ Using existing compiled model: {compiled_path}")
             final_compiled_path = compiled_path
         
-        print("\n🎉 Processo completato con successo!")
+        print("\n🎉 Process completed successfully!")
         if final_model_path:
-            print(f"📁 Modello base: {final_model_path}")
+            print(f"📁 Base model: {final_model_path}")
         if final_compiled_path:
-            print(f"🚀 Modello compilato: {final_compiled_path}")
-            print(f"\n💡 Per usare il modello compilato, imposta:")
+            print(f"🚀 Compiled model: {final_compiled_path}")
+            print(f"\n💡 To use the compiled model, set:")
             print(f"   export PRUNA_COMPILED_DIR='{final_compiled_path}'")
         
     except Exception as e:
-        print(f"\n❌ Errore durante l'esecuzione: {e}")
+        print(f"\n❌ Error during execution: {e}")
         sys.exit(1)
 
 #
-# Quando usare questo file? 
-# Questo file può essere utilizzato per scaricare e compilare modelli per l'inferenza.
-# 
-# Funzionalità principali:
-# - Verifica automaticamente se il modello esiste già nelle cartelle ./models e ./compiled_models
-# - Se il modello non esiste, lo scarica automaticamente da Hugging Face
-# - Se il modello compilato non esiste, lo compila automaticamente con Pruna
-# - Se entrambi esistono già, salta entrambe le operazioni
-# 
-# Esempio di utilizzo:
+# When to use this file?
+# This file can be used to download and compile models for inference.
+#
+# Key features:
+# - Automatically checks if the model already exists in ./models and ./compiled_models
+# - If the model doesn't exist, it downloads it from Hugging Face
+# - If the compiled model doesn't exist, it compiles it with Pruna
+# - If both already exist, it skips both operations
+#
+# Usage examples:
 # python download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
 # python download_model_and_compile.py --model-id CompVis/stable-diffusion-v1-4 --compilation-mode fast
 # python download_model_and_compile.py --model-id <MODEL_ID> --download-dir <CUSTOM_DIR> --compiled-dir <CUSTOM_COMPILED_DIR>
