@@ -122,9 +122,11 @@ curl -X POST http://127.0.0.1:8000/generate \
   ```
 
 ## Compilation Modes
-- **fast**: Quick development compile (DeepCache, half precision)
+- **fast**: Quick development compile (DeepCache, half precision). Good for rapid iterations.
 - **moderate**: Balanced speed and quality (TorchCompile + 8-bit HQQ)
-- **normal**: Full optimizations (FORA, factorizer, autotune)
+- **normal**: Full optimizations (FORA, factorizer, autotune). Full optimizations for production, longer compile time.
+
+Use `--compilation-mode` to pick the mode when running the CLI or API compile endpoint.
 
 ## Diagnostics & Helper Scripts
 - `test_pruna_cuda.py` — CUDA and Pruna diagnostics
@@ -228,76 +230,57 @@ python3 download_model_and_compile.py --help
 
 ## API endpoints (JSON)
 
-POST /download
+**POST /download**
 - Download a Hugging Face model into the download directory.
 
-Body example:
+Example:
 
-```json
-{ "model_id": "runwayml/stable-diffusion-v1-5" }
+```bash
+curl -X POST http://127.0.0.1:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5"}'
 ```
 
-POST /compile
+
+**POST /compile**
 - Compile an already downloaded model with Pruna and save into the compiled models directory.
 
-Body example:
+Example:
 
-```json
-{ "model_id": "runwayml/stable-diffusion-v1-5", "compilation_mode": "fast" }
+```bash
+curl -X POST http://127.0.0.1:8000/compile \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "compilation_mode" : "fast"}'
 ```
 
-POST /generate
+**POST /generate**
 - Generate images from a prompt using a compiled model.
 
-Body example:
+Example:
 
-```json
-{
-  "model_id": "runwayml/stable-diffusion-v1-5",
-  "prompt": "A beautiful sunset over the ocean",
-  "num_inference_steps": 20,
-  "guidance_scale": 7.5
-}
+```bash
+curl -X POST http://127.0.0.1:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "prompt" : "A beautiful sunset over the ocean", "num_inference_steps": 20, "guidance_scale": 7.5}'
 ```
 
-Response contains base64-encoded images and optional saved file paths when `debug: true`.
+Response contains base64-encoded images and optional saved file paths and returns the url to downlaod the image when `debug: true`.
 
-POST /delete-model
+**POST /delete-model**
 - Delete downloaded and/or compiled folders for a given model.
 
-Body example:
-
-```json
-{ "model_id": "runwayml/stable-diffusion-v1-5", "type": "all" }
-```
-
-GET /ping — basic liveness check
-
-GET /health — server configuration, system info, warnings and errors
-
-## Practical CLI examples
-
-Download only:
-
+Example:
 ```bash
-python3 download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
+curl -X POST http://127.0.0.1:8000/delete-model \
+  -H "Content-Type: application/json" \
+  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "type" : "all"}'
 ```
 
-Download + compile (fast):
+**GET /ping** — basic liveness check
 
-```bash
-python3 download_model_and_compile.py \
-  --model-id runwayml/stable-diffusion-v1-5 \
-  --compilation-mode fast
-```
+**GET /health** — server configuration, system info, warnings and errors
 
-Force CUDA compile (helper):
-
-```bash
-python3 force_cuda_compile.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
-```
-
-Run server and call compile endpoint (example):
+## Run server and call compile endpoint (example):
 
 ```bash
 # start server
@@ -312,85 +295,29 @@ curl -X POST http://127.0.0.1:8000/compile \
 pkill -f server.py
 ```
 
-Generate images via API:
-
-```bash
-curl -X POST http://127.0.0.1:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"model_id": "runwayml/stable-diffusion-v1-5", "prompt": "A scenic landscape at sunset"}'
-```
-
-## Compilation modes
-
-- Fast — quick compile for development (DeepCache, half precision). Good for rapid iterations.
-- Moderate — balanced quality/speed (TorchCompile + HQQ 8-bit where compatible).
-- Normal — full optimizations for production (FORA, factorizer, autotune). Longer compile time.
-
-Use `--compilation-mode` to pick the mode when running the CLI or API compile endpoint.
-
-## Diagnostics & helper scripts
-
-- `test_pruna_cuda.py` — CUDA and Pruna diagnostics.
-- `check_pruna_setup.py` — check versions and environment.
-- `compile_with_memory_mgmt.py` — memory-aware compilation helper.
-- `restart_clean_compile.sh` — restart process and free GPU memory before compiling.
-
-## File layout
-
-```
-lib/
-├── pruna_config.py          # Smart configurator
-├── const.py                 # Constants
-└── utils.py                 # Utilities
-
-download_model_and_compile.py # Main download/compile CLI
-server.py                     # Flask API server
-test_pruna_config.py          # Configurator tests
-test_pruna_cuda.py            # CUDA/Pruna diagnostics
-force_cuda_compile.py         # Force CUDA compile helper
-compile_with_memory_mgmt.py   # Memory-aware compilation
-restart_clean_compile.sh      # Restart + cleanup helper
-```
 
 # Single Files Explanation
 
 ## 1. Force CUDA explicitly
-```
+```bash
 python3 force_cuda_compile.py --model-id MODEL_ID --mode fast
 ```
 
 ## 2. Use memory-aware compilation
-```
+```bash
 python3 compile_with_memory_mgmt.py --model-id MODEL_ID --mode fast
 ```
 
 ## 3. Restart with clean memory
-```
+```bash
 ./restart_clean_compile.sh MODEL_ID fast
 ```
 
 ## 4. Set recommended env vars
-```
+```bash
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True,max_split_size_mb:512"
 export CUDA_VISIBLE_DEVICES=0
 python3 download_model_and_compile.py --device cuda --model-id MODEL_ID
-```
-
-## File layout and helper scripts
-
-```
-lib/
-├── pruna_config.py          # Smart configurator
-├── const.py                 # Constants
-└── utils.py                 # Utilities
-
-download_model_and_compile.py # Main script
-test_pruna_config.py         # Configurator tests
-test_pruna_cuda.py           # CUDA/Pruna diagnostics
-check_pruna_setup.py         # Setup checker
-force_cuda_compile.py        # Force CUDA compile helper
-compile_with_memory_mgmt.py  # Memory-aware compilation
-restart_clean_compile.sh     # Restart and clean memory helper
 ```
 
 # Docker usage
