@@ -15,7 +15,7 @@ This repository is a Docker-ready toolkit and a lightweight Flask API to downloa
 **It includes an intelligent configurator that manages device compatibility (CUDA, CPU, Apple MPS), automatic fallbacks, and memory-aware compilation modes.**
 
 ## TODO
-
+- [x] Async Download Opt
 - [ ] Push to Hub (compiled model)
 - [ ] Qwen
 - [ ] WAN 2.2
@@ -90,16 +90,44 @@ Start the API server:
 python3 server.py --host 127.0.0.1 --port 8000 --debug &
 ```
 
+Asynchronous downloads
+----------------------
+The API now runs potentially long-running downloads in a background task to avoid HTTP timeouts (eg. 524). When you POST to `/download` the server will immediately respond with a 202 Accepted and a `task_id` plus a `status_url` you can poll for progress and result.
+
+Example (enqueue download):
+
+```bash
+curl -X POST http://127.0.0.1:8000/download \
+  -H 'Content-Type: application/json' \
+  -d '{"model_id":"runwayml/stable-diffusion-v1-5"}'
+```
+
+Sample response:
+
+```json
+{ "status": "accepted", "task_id": "...", "status_url": "http://.../tasks/<task_id>" }
+```
+
+Poll the task status:
+
+```bash
+curl http://127.0.0.1:8000/tasks/<task_id>
+```
+
+The task JSON will include `status` (queued|running|finished|error) and, when finished, a `result` field with the downloaded model path or an `error` message.
+
+
 ## API Endpoints
 All endpoints accept and return JSON.
-| Method | Endpoint       | Description                         |
-|--------|----------------|-------------------------------------|
-| POST   | `/download`    | Download a model                    |
-| POST   | `/compile`     | Compile a downloaded model          |
-| POST   | `/generate`    | Generate images from a prompt       |
-| POST   | `/delete-model`| Delete downloaded/compiled model    |
-| GET    | `/ping`        | Liveness check                      |
-| GET    | `/health`      | Server health and configuration     |
+| Method | Endpoint               | Description                          |
+|--------|------------------------|--------------------------------------|
+| POST   | `/download`            | Enqueue a model download (async)     |
+| GET    | `/tasks/<task_id>`     | Get status/result for an async task  |
+| POST   | `/compile`             | Compile a downloaded model           |
+| POST   | `/generate`            | Generate images from a prompt        |
+| POST   | `/delete-model`        | Delete downloaded/compiled model     |
+| GET    | `/ping`                | Liveness check                       |
+| GET    | `/health`              | Server health and configuration      |
 
 Example — generate:
 ```bash
@@ -231,15 +259,9 @@ python3 download_model_and_compile.py --help
 ## API endpoints (JSON)
 
 **POST /download**
-- Download a Hugging Face model into the download directory.
+- Enqueue a Hugging Face model download. The endpoint is asynchronous and returns a `task_id` and `status_url` you can poll.
 
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"model_id": "runwayml/stable-diffusion-v1-5"}'
-```
+See the "Asynchronous downloads" section above for examples.
 
 
 **POST /compile**

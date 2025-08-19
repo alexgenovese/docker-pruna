@@ -11,9 +11,14 @@ import importlib.util
 spec = importlib.util.spec_from_file_location("download_model_and_compile", os.path.join(os.path.dirname(__file__), "../download_model_and_compile.py"))
 if spec and spec.loader:
     dl_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(dl_mod)
+    try:
+        spec.loader.exec_module(dl_mod)
+    except Exception as e:
+        # Do not fail import if download/compile helper has heavy deps missing
+        print(f"⚠️  Warning: failed to load download_model_and_compile.py in lib.utils: {e}")
+        dl_mod = None
 else:
-    raise ImportError("Impossibile importare download_model_and_compile.py")
+    dl_mod = None
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 try:
     from diffusers.pipelines.flux.pipeline_flux import FluxPipeline

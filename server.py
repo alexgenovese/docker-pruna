@@ -20,23 +20,60 @@ import importlib.util
 spec = importlib.util.spec_from_file_location("download_model_and_compile", os.path.join(os.path.dirname(__file__), "download_model_and_compile.py"))
 if spec and spec.loader:
     dl_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(dl_mod)
+    try:
+        spec.loader.exec_module(dl_mod)
+    except Exception as e:
+        # Don't fail import of server if the download/compile helper has heavy deps
+        print(f"⚠️  Warning: failed to load download_model_and_compile.py: {e}")
+        dl_mod = None
 else:
     dl_mod = None
 from flask import Flask, request, jsonify, url_for
+import threading
+import uuid
+import time
 
 # Flask application configuration
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 
+# In-memory download task registry (simple, non-persistent)
+DOWNLOAD_TASKS = {}
+DOWNLOAD_TASKS_LOCK = threading.Lock()
+
+#
+# Update the status of a download task
+#
+def _update_task(task_id, **kwargs):
+    with DOWNLOAD_TASKS_LOCK:
+        if task_id in DOWNLOAD_TASKS:
+            DOWNLOAD_TASKS[task_id].update(kwargs)
 
 
+#
+# Background worker for downloading models
+#
+# This runs in a separate thread to avoid blocking the main Flask thread
+# and to handle long-running downloads without HTTP timeouts.
+def _download_worker(task_id, model_id, download_dir, hf_token):
+    _update_task(task_id, status='running', started_at=time.time(), message='Starting download')
+    try:
+        path = dl_mod.download_model(model_id, download_dir, hf_token)
+        _update_task(task_id, status='finished', finished_at=time.time(), result=path, message='Download completed')
+    except Exception as e:
+        _update_task(task_id, status='error', finished_at=time.time(), error=str(e), message='Download failed')
+
+
+#
 # Serve generated static files (images)
+#
 @app.route('/generated_images/<path:filename>')
 def serve_generated_image(filename):
     return send_from_directory('generated_images', filename)
 
+#
 # Endpoint to delete a downloaded or compiled model
+#
 @app.route('/delete-model', methods=['POST'])
 def delete_model():
     """Delete the downloaded or compiled model folder given a model_id and a type ('downloaded' or 'compiled')."""
@@ -76,34 +113,56 @@ def delete_model():
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Internal error: {str(e)}'}), 500
 
-
+#
 # Endpoint to download a model (download only, no compilation)
+#
 @app.route('/download', methods=['POST'])
 def download_model():
     """Download a HuggingFace model into the download directory."""
-    try:
-        data = request.get_json() or {}
-        model_id = data.get('model_id') or data.get('modelId')
-        if not model_id:
-            return jsonify({'status': 'error', 'message': 'Parameter "model_id" required'}), 400
+    data = request.get_json() or {}
+    model_id = data.get('model_id') or data.get('modelId')
+    if not model_id:
+        return jsonify({'status': 'error', 'message': 'Parameter "model_id" required'}), 400
 
-        # Use the download function from the dynamic module
-        if not hasattr(dl_mod, 'download_model'):
-            return jsonify({'status': 'error', 'message': 'download_model function not found in download_model_and_compile.py'}), 500
+    # Ensure dynamic module exposes download function
+    if dl_mod is None or not hasattr(dl_mod, 'download_model'):
+        return jsonify({'status': 'error', 'message': 'download_model function not available'}), 500
 
-        download_dir = DEFAULT_CONFIG['download_dir']
-        hf_token = DEFAULT_CONFIG['hf_token']
-        try:
-            dl_mod.download_model(model_id, download_dir, hf_token)
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': f'Error during download: {str(e)}'}), 500
+    download_dir = DEFAULT_CONFIG['download_dir']
+    hf_token = DEFAULT_CONFIG['hf_token']
 
-        return jsonify({'status': 'success', 'message': f'Model {model_id} downloaded to {download_dir}'}), 200
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Internal error: {str(e)}'}), 500
+    # Create a background task for the download to avoid long HTTP timeouts (e.g., 524)
+    task_id = str(uuid.uuid4())
+    with DOWNLOAD_TASKS_LOCK:
+        DOWNLOAD_TASKS[task_id] = {
+            'task_id': task_id,
+            'model_id': model_id,
+            'status': 'queued',
+            'created_at': time.time(),
+            'message': 'Queued for download'
+        }
 
+    t = threading.Thread(target=_download_worker, args=(task_id, model_id, download_dir, hf_token), daemon=True)
+    t.start()
 
+    status_url = url_for('get_task', task_id=task_id, _external=True)
+    return jsonify({'status': 'accepted', 'task_id': task_id, 'status_url': status_url}), 202
+
+#
+# Endpoint to get the status of a download task
+#
+@app.route('/tasks/<task_id>', methods=['GET'])
+def get_task(task_id):
+    """Return status for an asynchronous download task."""
+    with DOWNLOAD_TASKS_LOCK:
+        task = DOWNLOAD_TASKS.get(task_id)
+    if not task:
+        return jsonify({'status': 'error', 'message': 'Task not found'}), 404
+    return jsonify(task)
+
+#
 # Endpoint to compile a model that has already been downloaded
+#
 @app.route('/compile', methods=['POST'])
 def compile_model():
     """Compile a model already downloaded into the compiled_dir."""
@@ -128,7 +187,9 @@ def compile_model():
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Internal error: {str(e)}'}), 500
 
+#
 # Ping endpoint
+#
 @app.route('/ping', methods=['GET'])
 def ping():
     """Simple ping endpoint"""
