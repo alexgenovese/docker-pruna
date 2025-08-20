@@ -16,6 +16,7 @@ This repository is a Docker-ready toolkit and a lightweight Flask API to downloa
 
 ## TODO
 - [x] Async Download Opt
+- [x] Download Compiled Models from HF
 - [ ] Push to Hub (compiled model)
 - [ ] Qwen
 - [ ] WAN 2.2
@@ -177,10 +178,44 @@ server.py                     Flask API server
 ```
 
 ## Docker Usage
-Build the image:
+
+Build the image (simple):
 ```bash
 docker build -t docker-pruna .
 ```
+
+Build with a precompiled model baked-in at build time
+(this will run the repository's `download_model_and_compile.py` during the build):
+
+Note: downloading/compiling at build-time requires network access and
+the heavy Python dependencies (it increases build-time and image size).
+Also avoid passing secrets via plain `--build-arg` for public/CI builds — use
+BuildKit secrets instead (recommended) so the token doesn't end up in image
+layers.
+
+Insecure (quick) example — pass HF token as a build arg (NOT recommended for public images):
+```bash
+docker build -t docker-pruna:with-model \
+  --build-arg PRUNA_COMPILED_MODEL="runwayml/stable-diffusion-v1-5" \
+  --build-arg HF_TOKEN="<YOUR_HF_TOKEN>" .
+```
+
+Recommended (secure) BuildKit example using a secret file:
+```bash
+# create a file with your HF token (CI secrets preferred)
+echo -n "<YOUR_HF_TOKEN>" > hf_token.txt
+
+# Build with BuildKit and mount the token as a secret at /run/secrets/hf_token
+DOCKER_BUILDKIT=1 docker build --progress=plain -t docker-pruna:with-model \
+  --secret id=hf_token,src=hf_token.txt \
+  --build-arg PRUNA_COMPILED_MODEL="runwayml/stable-diffusion-v1-5" .
+```
+
+If you use the BuildKit secret approach the Dockerfile mounts the secret at
+`/run/secrets/hf_token` for the single build-step and the token is not stored
+in any image layer. This is the recommended way to provide private tokens at
+build-time.
+
 Run container:
 ```bash
 docker run --rm -e MODEL_DIFF=runwayml/stable-diffusion-v1-5 docker-pruna
