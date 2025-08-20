@@ -42,7 +42,9 @@ COPY test_pruna_infer.py .
 # -- Copy local library modules
 COPY lib/ ./lib/
 
-# -- Export some environment variables from build args (non-sensitive)
+# -- Imposta variabili d'ambiente dai parametri build
+ENV MODEL_DIFF=${MODEL_DIFF}
+# Use runtime ENV so values passed as build args are also available when container runs.
 ENV DOWNLOAD_DIR=${DOWNLOAD_DIR}
 ENV PRUNA_COMPILED_DIR=${PRUNA_COMPILED_DIR}
 ENV PRUNA_COMPILED_MODEL=${PRUNA_COMPILED_MODEL}
