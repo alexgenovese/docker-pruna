@@ -72,12 +72,13 @@ fi
 # Use the optimized build script approach but with our specific requirements
 echo "📦 Building image: $DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG"
 
+# Use BuildKit plain progress for more predictable, non-interactive logs.
 docker build \
     --build-arg MODEL_DIFF="$MODEL_DIFF" \
     $BUILD_ARGS \
     --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" \
     --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:latest" \
-    --debug \
+    --progress=plain \
     --platform linux/amd64 \
     .
 
@@ -90,11 +91,12 @@ else
 fi
 
 # Run a quick health check before pushing
-echo "🧪 Running quick health check..."
-if docker run --rm --gpus all "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" /opt/venv/bin/python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')" 2>/dev/null; then
+echo "🧪 Running quick health check (no GPU binding to avoid host-specific hangs)..."
+# Run without explicit GPU binding to avoid hangs on hosts where --gpus is unsupported.
+if docker run --rm "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" python3 -c "import torch,sys; print(f'PyTorch version: {torch.__version__}'); print('CUDA available:', torch.cuda.is_available()); sys.exit(0)" 2>/dev/null; then
     echo "✅ Health check passed!"
 else
-    echo "⚠️  Health check failed, proceeding with push anyway..."
+    echo "⚠️  Health check failed or produced errors; proceeding with push anyway..."
 fi
 
 # Push the Docker image to Docker Hub
