@@ -6,16 +6,19 @@
 # Stop on error
 set -e
 
-# Load environment variables from .env file
-if [ -f .env ]; then
-    echo "🔧 Loading variables from .env..."
+# Load environment variables from .env file located in the repository root (one level up from this script)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../.env"
+if [ -f "$ENV_FILE" ]; then
+    echo "🔧 Loading variables from $ENV_FILE..."
     # Enable automatic variable export
     set -o allexport
-    source .env
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
     set +o allexport
-    echo "✅ Variables loaded: IMAGE_NAME=$IMAGE_NAME, TAG=$TAG"
+    echo "✅ Variables loaded: IMAGE_NAME=${IMAGE_NAME:-}, TAG=${TAG:-}, DOCKER_HUB_USERNAME=${DOCKER_HUB_USERNAME:-}, DOCKER_HUB_PASSWORD=${DOCKER_HUB_PASSWORD:-}, HF_TOKEN=${HF_TOKEN:-}"
 else
-    echo "⚠️  .env file not found, using defaults"
+    echo "⚠️  $ENV_FILE not found, using defaults"
 fi
 
 # Set default values if not defined in .env
@@ -46,6 +49,11 @@ if [ -z "$DOCKER_HUB_PASSWORD" ]; then
     exit 1
 fi
 
+if [ -z "$HF_TOKEN" ]; then
+    echo "❌ HF_TOKEN not set in .env"
+    exit 1
+fi
+
 echo "🚀 Starting build & push process for $DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG"
 
 # Check if already logged into Docker Hub
@@ -60,8 +68,8 @@ fi
 echo "🏗️  Building optimized Docker image..."
 
 # Export environment variables for the build script
-export DOCKER_BUILDKIT=1
-export BUILDKIT_PROGRESS=plain
+# export DOCKER_BUILDKIT=1
+# export BUILDKIT_PROGRESS=plain
 
 # Create temporary build script args
 BUILD_ARGS=""
@@ -77,27 +85,10 @@ docker build \
     --build-arg MODEL_DIFF="$MODEL_DIFF" \
     $BUILD_ARGS \
     --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" \
-    --tag "$DOCKER_HUB_USERNAME/$IMAGE_NAME:latest" \
-    --progress=plain \
     --platform linux/amd64 \
+    --debug \
+    --no-cache \
     .
-
-# Verify the build was successful
-if [ $? -eq 0 ]; then
-    echo "✅ Build completed successfully!"
-else
-    echo "❌ Build failed!"
-    exit 1
-fi
-
-# Run a quick health check before pushing
-echo "🧪 Running quick health check (no GPU binding to avoid host-specific hangs)..."
-# Run without explicit GPU binding to avoid hangs on hosts where --gpus is unsupported.
-if docker run --rm "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" python3 -c "import torch,sys; print(f'PyTorch version: {torch.__version__}'); print('CUDA available:', torch.cuda.is_available()); sys.exit(0)" 2>/dev/null; then
-    echo "✅ Health check passed!"
-else
-    echo "⚠️  Health check failed or produced errors; proceeding with push anyway..."
-fi
 
 # Push the Docker image to Docker Hub
 echo "📤 Pushing Docker image to Docker Hub..."

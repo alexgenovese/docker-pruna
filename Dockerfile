@@ -2,16 +2,17 @@
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS base
 
 # -- Build-time arguments for customization
-ARG MODEL_DIFF=CompVis/stable-diffusion-v1-4
+ARG MODEL_DIFF=runwayml/stable-diffusion-v1-5
 ARG DOWNLOAD_DIR=/app/models
 ARG PRUNA_COMPILED_DIR=/app/compiled_models
 ARG PRUNA_COMPILED_MODEL=
 ARG TORCH_DTYPE=float16
 
 # NOTE: Do not put sensitive tokens into ARG/ENV in Dockerfiles for public images.
-# If you need to pass a token at build-time, prefer build-time secrets or CI-managed
-# secure variables. The HF_TOKEN is used below for build-time downloads when set.
-ARG HF_TOKEN
+# Use BuildKit secrets for build-time sensitive data so tokens are not stored in
+# image layers. During a RUN you can mount the secret with --mount=type=secret
+# (available when building with BuildKit / buildx) and read it from
+# /run/secrets/<id> without adding it to the image.
 
 # -- Basic OS deps: Python, pip, aria2, git, etc.
 RUN apt-get update && \
@@ -35,9 +36,8 @@ RUN pip install -r requirements.txt
 FROM pip-env AS setup-server
 
 # -- Main scripts
-COPY download_model_and_compile.py .
-COPY server.py .
-COPY test_pruna_infer.py .
+COPY utilities/download_model_and_compile.py ./download_model_and_compile.py
+COPY server.py ./server.py
 
 # -- Copy local library modules
 COPY lib/ ./lib/
@@ -53,9 +53,12 @@ ENV PRUNA_COMPILED_MODEL=${PRUNA_COMPILED_MODEL}
 # compiled models directory using the existing download/compile script. This
 # keeps the image self-contained with the compiled model ready to use.
 # NOTE: it will increase build-time and image size.
-RUN if [ -n "${PRUNA_COMPILED_MODEL}" ]; then \
+RUN --mount=type=secret,id=hf_token \
+    if [ -n "${PRUNA_COMPILED_MODEL}" ]; then \
       echo "Downloading and compiling specified precompiled model: ${PRUNA_COMPILED_MODEL}"; \
-  python3 download_model_and_compile.py --model-id "${PRUNA_COMPILED_MODEL}" --compiled-dir "${PRUNA_COMPILED_DIR}" --hf-token "${HF_TOKEN}"; \
+      # read token from the mounted secret (silent if missing) and pass to script
+      HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)"; \
+      python3 download_model_and_compile.py --model-id "${PRUNA_COMPILED_MODEL}" --compiled-dir "${PRUNA_COMPILED_DIR}" --hf-token "${HF_TOKEN}"; \
     else \
       echo "No PRUNA_COMPILED_MODEL specified, skipping model download at build-time"; \
     fi

@@ -145,10 +145,6 @@ curl -X POST http://127.0.0.1:8000/generate \
     --model-id runwayml/stable-diffusion-v1-5 \
     --compilation-mode fast
   ```
-- Force CUDA compile:
-  ```bash
-  python3 force_cuda_compile.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
-  ```
 
 ## Compilation Modes
 - **fast**: Quick development compile (DeepCache, half precision). Good for rapid iterations.
@@ -355,22 +351,17 @@ pkill -f server.py
 
 # Single Files Explanation
 
-## 1. Force CUDA explicitly
-```bash
-python3 force_cuda_compile.py --model-id MODEL_ID --mode fast
-```
-
-## 2. Use memory-aware compilation
+## 1. Use memory-aware compilation
 ```bash
 python3 compile_with_memory_mgmt.py --model-id MODEL_ID --mode fast
 ```
 
-## 3. Restart with clean memory
+## 2. Restart with clean memory
 ```bash
 ./restart_clean_compile.sh MODEL_ID fast
 ```
 
-## 4. Set recommended env vars
+## 3. Set recommended env vars
 ```bash
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True,max_split_size_mb:512"
 export CUDA_VISIBLE_DEVICES=0
@@ -391,17 +382,17 @@ docker build \
 
 ### Test and validation
 ```bash
-python3 test_pruna_config.py
-python3 test_pruna_infer.py
+python3 tests/test_pruna_infer.py
 ./test_main.sh
 ```
+
 
 ## Quick CLI examples
 
 1) Download a model (CLI):
 
 ```bash
-python3 download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
+python3 utilities/download_model_and_compile.py --model-id runwayml/stable-diffusion-v1-5
 ```
 
 2) Download + compile (fast mode):
@@ -412,13 +403,7 @@ python3 download_model_and_compile.py \
   --compilation-mode fast
 ```
 
-3) Force CUDA compilation (if you have a GPU):
-
-```bash
-python3 force_cuda_compile.py --model-id runwayml/stable-diffusion-v1-5 --mode fast
-```
-
-4) Run the Flask API locally and test compile endpoint (example):
+3) Run the Flask API locally and test compile endpoint (example):
 
 ```bash
 # start server in background

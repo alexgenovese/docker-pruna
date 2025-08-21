@@ -4,19 +4,15 @@ Flask server API for inference with Flux Krea models.
 Exposes REST endpoints for image generation using models compiled with Pruna.
 """
 
-
-import os
-import sys
-import shutil
-import torch
-import traceback
-from pathlib import Path
+import importlib.util
+import os, sys, shutil, torch, traceback, threading, uuid, time
 from flask import send_from_directory
-from typing import Dict, Any, Optional
 from lib.utils import load_model, get_best_available_device, validate_configuration, image_to_base64
 from lib.const import DEFAULT_CONFIG, MODEL_CACHE
 
-import importlib.util
+#
+# Download and compile helper module
+#
 spec = importlib.util.spec_from_file_location("download_model_and_compile", os.path.join(os.path.dirname(__file__), "download_model_and_compile.py"))
 if spec and spec.loader:
     dl_mod = importlib.util.module_from_spec(spec)
@@ -28,12 +24,11 @@ if spec and spec.loader:
         dl_mod = None
 else:
     dl_mod = None
-from flask import Flask, request, jsonify, url_for
-import threading
-import uuid
-import time
 
+#
 # Flask application configuration
+#
+from flask import Flask, request, jsonify, url_for
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 

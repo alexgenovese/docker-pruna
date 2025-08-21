@@ -1,4 +1,33 @@
-import os
+#!/usr/bin/env python3
+"""
+Main script to download and compile diffusers models with Pruna.
+Configurable via environment variables or CLI arguments.
+"""
+from pruna import smash
+import os, sys, argparse, torch
+from pathlib import Path as _Path
+
+# When this script is executed directly (python3 utilities/...), Python does not
+# set a package context, so relative imports like "..lib.pruna_config" fail.
+# Ensure the repository root is on sys.path so we can import `lib.pruna_config`
+# using an absolute import.
+_ROOT = _Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from huggingface_hub import login
+from pathlib import Path
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import StableDiffusionPipeline
+from diffusers.pipelines.pipeline_utils import DiffusionPipeline
+from lib.pruna_config import PrunaModelConfigurator
+
+# FLUX Model 
+try:
+    from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
+    FLUX_AVAILABLE = True
+except ImportError:
+    FLUX_AVAILABLE = False
+    FluxPipeline = None
+
 
 # Public API function: compile a model given a model_id
 def compile_model(model_id, download_dir, compiled_dir, torch_dtype='float16', compilation_mode='normal', force_cpu=False, device_override=None):
@@ -19,27 +48,6 @@ def compile_model(model_id, download_dir, compiled_dir, torch_dtype='float16', c
         force_cpu=force_cpu,
         device_override=device_override
     )
-#!/usr/bin/env python3
-"""
-Main script to download and compile diffusers models with Pruna.
-Configurable via environment variables or CLI arguments.
-"""
-import os
-import sys
-import argparse
-import torch
-from pathlib import Path
-from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import StableDiffusionPipeline
-from diffusers.pipelines.pipeline_utils import DiffusionPipeline
-try:
-    from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
-    FLUX_AVAILABLE = True
-except ImportError:
-    FLUX_AVAILABLE = False
-    FluxPipeline = None
-from pruna import SmashConfig, smash
-from huggingface_hub import login
-from lib.pruna_config import PrunaModelConfigurator
 
 # Default values
 DEFAULT_DOWNLOAD_DIR = './models'
@@ -52,7 +60,7 @@ def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Download and compile diffusion models with Pruna')
     parser.add_argument('--model-id', 
-                       default=os.environ.get('MODEL_DIFF', 'CompVis/stable-diffusion-v1-4'),
+                       default=os.environ.get('MODEL_DIFF', 'runwayml/stable-diffusion-v1-5'),
                        help='Hugging Face model ID to download (default: %(default)s)')
     parser.add_argument('--download-dir',
                        default=None,

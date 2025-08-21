@@ -1,10 +1,8 @@
-import os
+import os, torch
 from pruna import PrunaModel
-from PIL import Image
-import torch
 
 # Leggi la directory del modello compilato da variabile d'ambiente
-MODEL_DIR = os.environ.get("PRUNA_COMPILED_DIR", "./compiled_models/stable-diffusion-v1-4")
+MODEL_DIR = os.environ.get("PRUNA_COMPILED_DIR", "./compiled_models/runwayml--stable-diffusion-v1-5")
 if not os.path.isdir(MODEL_DIR):
     raise RuntimeError(f"Directory modello non trovata: {MODEL_DIR}")
 
