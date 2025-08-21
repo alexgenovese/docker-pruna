@@ -81,6 +81,10 @@ fi
 echo "📦 Building image: $DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG"
 
 # Use BuildKit plain progress for more predictable, non-interactive logs.
+if docker image inspect "$DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG" >/dev/null 2>&1; then
+    echo "\u2705 Image $DOCKER_HUB_USERNAME/$IMAGE_NAME:$TAG already exists locally — skipping build."
+    echo "If you want to rebuild, remove the image or run the script with a different tag."
+else
 docker build \
     --build-arg MODEL_DIFF="$MODEL_DIFF" \
     $BUILD_ARGS \
@@ -89,6 +93,7 @@ docker build \
     --debug \
     --no-cache \
     .
+fi
 
 # Push the Docker image to Docker Hub
 echo "📤 Pushing Docker image to Docker Hub..."
